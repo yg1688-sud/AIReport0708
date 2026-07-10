@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户管理 - AIExport</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5.x/dist/reset.css">
+  <link rel="stylesheet" href="../css/app.css">
+</head>
+<body>
+  <div id="app">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h2>用户管理</h2>
+      <div>
+        <button id="createBtn" style="padding:8px 16px;background:#1677ff;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:8px;">创建用户</button>
+        <button onclick="window.location.hash='#main'" style="padding:8px 16px;background:#fff;border:1px solid #d9d9d9;border-radius:6px;cursor:pointer;">返回主页</button>
+      </div>
+    </div>
+
+    <div id="createModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:1000;display:none;align-items:center;justify-content:center;">
+      <div class="card" style="width:400px;"><h3>创建用户</h3>
+        <input id="newUsername" placeholder="用户名" style="width:100%;padding:8px;margin:8px 0;border:1px solid #d9d9d9;border-radius:4px;">
+        <input id="newPassword" type="password" placeholder="密码" style="width:100%;padding:8px;margin:8px 0;border:1px solid #d9d9d9;border-radius:4px;">
+        <select id="newRole" style="width:100%;padding:8px;margin:8px 0;border:1px solid #d9d9d9;border-radius:4px;"><option value="user">普通用户</option><option value="admin">管理员</option></select>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button onclick="document.getElementById('createModal').style.display='none'" style="padding:8px 16px;border:1px solid #d9d9d9;border-radius:4px;background:#fff;cursor:pointer;">取消</button>
+          <button id="confirmCreate" style="padding:8px 16px;background:#1677ff;color:#fff;border:none;border-radius:4px;cursor:pointer;">创建</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="userList" class="card"><p style="color:#888;text-align:center;padding:40px;">加载中...</p></div>
+  </div>
+
+  <script type="module" src="../js/api.js"></script>
+  <script type="module">
+    import { get, post, put, del } from '../js/api.js';
+    import { checkAuth } from '../js/auth.js';
+    if (!checkAuth()) { window.location.hash = '#login'; }
+
+    async function render() {
+      const container = document.getElementById('userList');
+      const res = await get('/admin/users');
+      const data = await res.json();
+      if (!data.users.length) { container.innerHTML='<p style="color:#888;text-align:center;padding:40px;">暂无用户</p>'; return; }
+      container.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="border-bottom:2px solid #e8e8e8;text-align:left;"><th style="padding:8px;">用户名</th><th style="padding:8px;">角色</th><th style="padding:8px;">状态</th><th style="padding:8px;">创建时间</th><th style="padding:8px;">操作</th></tr></thead>
+        <tbody>${data.users.map(u => `<tr style="border-bottom:1px solid #f0f0f0;">
+          <td style="font-weight:500;">${u.username}</td><td>${u.role}</td>
+          <td><span style="color:${u.isActive?'#52c41a':'#ff4d4f'};">${u.isActive?'启用':'禁用'}</span></td>
+          <td style="color:#888;">${new Date(u.createdAt).toLocaleDateString()}</td>
+          <td>
+            <button onclick="window._toggle('${u.id}')" style="margin-right:8px;border:none;background:none;color:#1677ff;cursor:pointer;">${u.isActive?'禁用':'启用'}</button>
+            <button onclick="window._deleteUser('${u.id}')" style="border:none;background:none;color:#ff4d4f;cursor:pointer;">删除</button>
+          </td></tr>`).join('')}</tbody></table>`;
+    }
+
+    document.getElementById('createBtn').onclick = () => document.getElementById('createModal').style.display = 'flex';
+    document.getElementById('confirmCreate').onclick = async () => {
+      const username = document.getElementById('newUsername').value.trim();
+      const password = document.getElementById('newPassword').value.trim();
+      const role = document.getElementById('newRole').value;
+      if (!username || !password) { alert('用户名和密码不能为空'); return; }
+      await post('/admin/users', { username, password, role });
+      document.getElementById('createModal').style.display = 'none';
+      render();
+    };
+
+    window._toggle = async (id) => { await put(`/admin/users/${id}/toggle`, {}); render(); };
+    window._deleteUser = async (id) => {
+      if (!confirm('确定删除此用户？')) return;
+      await del(`/admin/users/${id}`);
+      render();
+    };
+    render();
+  </script>
+</body>
+</html>

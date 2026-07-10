@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - AIExport</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5.x/dist/reset.css">
+  <link rel="stylesheet" href="../css/app.css">
+</head>
+<body>
+  <div id="app">
+    <div class="login-container">
+      <div class="card" style="text-align:center;">
+        <h1 style="margin-bottom:24px;">AIExport</h1>
+        <p style="color:#888;margin-bottom:24px;">数据分析报告系统</p>
+
+        <form id="loginForm">
+          <div class="ant-form-item" style="margin-bottom:16px;">
+            <input type="text" id="username" class="ant-input" placeholder="用户名" required
+                   style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;">
+          </div>
+          <div class="ant-form-item" style="margin-bottom:24px;">
+            <input type="password" id="password" class="ant-input" placeholder="密码" required
+                   style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;">
+          </div>
+          <div id="errorMsg" style="color:#ff4d4f;margin-bottom:16px;display:none;"></div>
+          <button type="submit" id="loginBtn"
+                  style="width:100%;padding:10px;background:#1677ff;color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer;">
+            登 录
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="../js/api.js"></script>
+  <script type="module" src="../js/auth.js"></script>
+  <script type="module">
+    import { login } from '../js/auth.js';
+
+    const form = document.getElementById('loginForm');
+    const errorMsg = document.getElementById('errorMsg');
+    const loginBtn = document.getElementById('loginBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+
+      if (!username || !password) {
+        errorMsg.textContent = '请输入用户名和密码';
+        errorMsg.style.display = 'block';
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginBtn.textContent = '登录中...';
+      errorMsg.style.display = 'none';
+
+      try {
+        await login(username, password);
+        window.location.hash = '#main';
+        window.location.reload();
+      } catch (err) {
+        errorMsg.textContent = err.message || '登录失败，请重试';
+        errorMsg.style.display = 'block';
+        loginBtn.disabled = false;
+        loginBtn.textContent = '登 录';
+      }
+    });
+  </script>
+</body>
+</html>

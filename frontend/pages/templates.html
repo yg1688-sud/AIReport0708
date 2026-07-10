@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>模版管理 - AIExport</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5.x/dist/reset.css">
+  <link rel="stylesheet" href="../css/app.css">
+</head>
+<body>
+  <div id="app">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h2>模版管理</h2>
+      <button onclick="window.location.hash='#main'" style="padding:8px 16px;background:#1677ff;color:#fff;border:none;border-radius:6px;cursor:pointer;">返回主页</button>
+    </div>
+    <div id="templateList" class="card">
+      <p style="color:#888;text-align:center;padding:40px;">加载中...</p>
+    </div>
+  </div>
+
+  <script type="module" src="../js/api.js"></script>
+  <script type="module">
+    import { loadTemplateList, deleteTemplate, viewTemplateDetail } from '../js/template.js';
+    import { checkAuth } from '../js/auth.js';
+
+    if (!checkAuth()) { window.location.hash = '#login'; }
+
+    async function render() {
+      const container = document.getElementById('templateList');
+      try {
+        const templates = await loadTemplateList();
+        if (templates.length === 0) {
+          container.innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无保存的模版</p>';
+          return;
+        }
+        container.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="border-bottom:2px solid #e8e8e8;text-align:left;">
+            <th style="padding:12px;">模版名称</th><th style="padding:12px;">策略</th>
+            <th style="padding:12px;">关联列</th><th style="padding:12px;">保存时间</th>
+            <th style="padding:12px;">操作</th>
+          </tr></thead>
+          <tbody>${templates.map(t => `<tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:12px;font-weight:500;">${t.name}</td>
+            <td style="padding:12px;">${t.strategy === 'merge' ? '合并分析' : '分别分析'}</td>
+            <td style="padding:12px;color:#888;">${t.columnNames.join(', ')}</td>
+            <td style="padding:12px;color:#888;">${new Date(t.createdAt).toLocaleDateString()}</td>
+            <td style="padding:12px;">
+              <button onclick="window._viewDetail('${t.id}')" style="margin-right:8px;border:none;background:none;color:#1677ff;cursor:pointer;">详情</button>
+              <button onclick="window._deleteTemplate('${t.id}')" style="border:none;background:none;color:#ff4d4f;cursor:pointer;">删除</button>
+            </td>
+          </tr>`).join('')}</tbody></table>`;
+      } catch (e) {
+        container.innerHTML = `<p style="color:#ff4d4f;text-align:center;">加载失败: ${e.message}</p>`;
+      }
+    }
+
+    window._viewDetail = viewTemplateDetail;
+    window._deleteTemplate = async (id) => {
+      if (!confirm('确定要删除此模版吗？')) return;
+      await deleteTemplate(id);
+      render();
+    };
+
+    render();
+  </script>
+</body>
+</html>

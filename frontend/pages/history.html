@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>历史报告 - AIExport</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5.x/dist/reset.css">
+  <link rel="stylesheet" href="../css/app.css">
+</head>
+<body>
+  <div id="app">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+      <h2>历史报告</h2>
+      <div style="display:flex;gap:8px;">
+        <input id="searchInput" type="text" placeholder="搜索文件名..." style="padding:8px;border:1px solid #d9d9d9;border-radius:6px;width:200px;">
+        <input id="dateFrom" type="date" style="padding:8px;border:1px solid #d9d9d9;border-radius:6px;">
+        <input id="dateTo" type="date" style="padding:8px;border:1px solid #d9d9d9;border-radius:6px;">
+        <button id="batchDownloadBtn" onclick="window._batchDownload()" style="padding:8px 16px;background:#1677ff;color:#fff;border:none;border-radius:6px;cursor:pointer;">
+          批量下载
+        </button>
+        <button onclick="window.location.hash='#main'" style="padding:8px 16px;background:#fff;border:1px solid #d9d9d9;border-radius:6px;cursor:pointer;">返回主页</button>
+      </div>
+    </div>
+
+    <div id="historyList" class="card">
+      <p style="color:#888;text-align:center;padding:40px;">加载中...</p>
+    </div>
+
+    <div id="pagination" style="text-align:center;margin-top:16px;"></div>
+  </div>
+
+  <script type="module" src="../js/api.js"></script>
+  <script type="module">
+    import { loadHistory, deleteReport, batchDownload } from '../js/report.js';
+    import { checkAuth } from '../js/auth.js';
+    import { formatDate, formatFileSize, debounce } from '../js/utils.js';
+
+    if (!checkAuth()) { window.location.hash = '#login'; }
+
+    let selectedIds = new Set();
+    let currentPage = 1;
+
+    async function render(page = 1) {
+      currentPage = page;
+      const keyword = document.getElementById('searchInput')?.value || '';
+      const dateFrom = document.getElementById('dateFrom')?.value || '';
+      const dateTo = document.getElementById('dateTo')?.value || '';
+
+      const container = document.getElementById('historyList');
+      try {
+        const data = await loadHistory({ page, pageSize: 20, keyword, dateFrom, dateTo });
+        if (!data.items || data.items.length === 0) {
+          container.innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无历史报告</p>';
+          document.getElementById('pagination').innerHTML = '';
+          return;
+        }
+
+        container.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="border-bottom:2px solid #e8e8e8;text-align:left;">
+            <th style="padding:8px;width:40px;"><input type="checkbox" id="selectAll"></th>
+            <th style="padding:8px;">文件名</th><th style="padding:8px;">生成时间</th><th style="padding:8px;">模式</th>
+            <th style="padding:8px;">大小</th><th style="padding:8px;">状态</th><th style="padding:8px;">过期时间</th>
+            <th style="padding:8px;">操作</th>
+          </tr></thead>
+          <tbody>${data.items.map(r => `<tr style="border-bottom:1px solid #f0f0f0;">
+            <td><input type="checkbox" value="${r.id}" class="reportCheck"></td>
+            <td style="font-weight:500;">${r.originalFileName}</td>
+            <td style="color:#888;">${formatDate(r.createdAt)}</td>
+            <td>${r.mode === 'template' ? '模版' : '对话'}</td>
+            <td style="color:#888;">${r.fileSize ? formatFileSize(r.fileSize) : '-'}</td>
+            <td><span style="color:${r.reportStatus === 'completed' ? '#52c41a' : '#faad14'};">${r.reportStatus}</span></td>
+            <td style="color:#888;">${formatDate(r.expiresAt)}</td>
+            <td>
+              <a href="#" onclick="window._viewReport('${r.id}')" style="margin-right:8px;color:#1677ff;">查看</a>
+              <a href="#" onclick="window._downloadReport('${r.id}')" style="margin-right:8px;color:#1677ff;">下载</a>
+              <a href="#" onclick="window._deleteReport('${r.id}')" style="color:#ff4d4f;">删除</a>
+            </td>
+          </tr>`).join('')}</tbody></table>`;
+
+        // 分页
+        const totalPages = Math.ceil(data.total / data.pageSize);
+        document.getElementById('pagination').innerHTML = totalPages > 1
+          ? `<button onclick="window._goPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>&laquo; 上一页</button>
+             <span style="margin:0 12px;">${page} / ${totalPages}</span>
+             <button onclick="window._goPage(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>下一页 &raquo;</button>`
+          : '';
+
+        // Checkbox 事件
+        document.getElementById('selectAll').addEventListener('change', (e) => {
+          document.querySelectorAll('.reportCheck').forEach(cb => {
+            cb.checked = e.target.checked;
+            e.target.checked ? selectedIds.add(cb.value) : selectedIds.delete(cb.value);
+          });
+        });
+        document.querySelectorAll('.reportCheck').forEach(cb => {
+          cb.addEventListener('change', () => {
+            cb.checked ? selectedIds.add(cb.value) : selectedIds.delete(cb.value);
+          });
+        });
+      } catch (e) {
+        container.innerHTML = `<p style="color:#ff4d4f;text-align:center;">加载失败: ${e.message}</p>`;
+      }
+    }
+
+    window._goPage = render;
+    window._viewReport = (id) => { window.location.hash = `#main`; localStorage.setItem('viewReportId', id); window.location.reload(); };
+    window._downloadReport = async (id) => {
+      const { downloadReport } = await import('../js/report.js');
+      downloadReport(id);
+    };
+    window._deleteReport = async (id) => {
+      if (!confirm('确定要删除此报告吗？')) return;
+      await deleteReport(id);
+      render(currentPage);
+    };
+    window._batchDownload = async () => {
+      if (selectedIds.size === 0) { alert('请勾选要下载的报告'); return; }
+      await batchDownload([...selectedIds]);
+      selectedIds.clear();
+    };
+
+    document.getElementById('searchInput').addEventListener('input', debounce(() => render(1), 500));
+    document.getElementById('dateFrom').addEventListener('change', () => render(1));
+    document.getElementById('dateTo').addEventListener('change', () => render(1));
+
+    render();
+  </script>
+</body>
+</html>
