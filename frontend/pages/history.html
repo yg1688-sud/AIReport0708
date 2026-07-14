@@ -22,10 +22,26 @@
     <input id="dateFrom" type="date" class="ant-input" style="width:160px;">
     <input id="dateTo" type="date" class="ant-input" style="width:160px;">
     <button id="batchDownloadBtn" class="btn btn-primary">批量下载</button>
+    <button id="batchDeleteBtn" class="btn btn-danger">批量删除</button>
   </div>
   <div id="historyList" class="card"><p style="color:#888;text-align:center;padding:40px;">加载中...</p></div>
   <div id="pagination" style="text-align:center;margin-top:16px;"></div>
 </div>
+</div>
+
+<!-- 报告弹窗 -->
+<div id="reportModal" class="ant-modal-mask" style="display:none;">
+  <div class="card" style="width:90%;max-width:1000px;max-height:80vh;overflow-y:auto;position:relative;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 id="modalTitle">报告详情</h2>
+      <button onclick="document.getElementById('reportModal').style.display='none'" style="border:none;background:none;font-size:24px;cursor:pointer;">&times;</button>
+    </div>
+    <div id="modalReportContent"><p style="color:#888;text-align:center;padding:40px;">加载中...</p></div>
+    <div id="modalActions" style="text-align:center;margin-top:12px;display:none;">
+      <button id="modalDownload" class="btn btn-primary">下载 PDF</button>
+      <button onclick="document.getElementById('reportModal').style.display='none'" class="btn btn-default" style="margin-left:8px;">关闭</button>
+    </div>
+  </div>
 </div>
 
 <script type="module" src="../js/api.js"></script>
@@ -70,7 +86,7 @@ async function render(page = 1) {
     };
     container.querySelectorAll('.rcb').forEach(cb => cb.onchange = () => { cb.checked ? selectedIds.add(cb.value) : selectedIds.delete(cb.value); });
     container.querySelectorAll('.del-link').forEach(a => a.onclick = async e => { e.preventDefault(); if(confirm('确定删除？')){ await deleteReport(a.dataset.id); render(currentPage); } });
-    container.querySelectorAll('.view-link').forEach(a => a.onclick = e => { e.preventDefault(); localStorage.setItem('viewReportId', a.dataset.id); window.location.href='/pages/main.html'; });
+    container.querySelectorAll('.view-link').forEach(a => a.onclick = async e => { e.preventDefault(); viewReportInModal(a.dataset.id); });
     container.querySelectorAll('.dl-link').forEach(a => a.onclick = async e => { e.preventDefault(); const {downloadReport}=await import('../js/report.js'); downloadReport(a.dataset.id); });
 
     const tp = Math.ceil(data.total / data.pageSize);
@@ -79,7 +95,36 @@ async function render(page = 1) {
   } catch(e) { document.getElementById('historyList').innerHTML = `<p style="color:#ff4d4f;">加载失败: ${e.message}</p>`; }
 }
 window._goPage = render;
+
+async function viewReportInModal(reportId) {
+  document.getElementById('reportModal').style.display = 'flex';
+  document.getElementById('modalReportContent').innerHTML = '<p style="color:#888;text-align:center;padding:40px;">加载中...</p>';
+  document.getElementById('modalActions').style.display = 'none';
+  try {
+    const token = localStorage.getItem('token');
+    const res = await fetch('http://localhost:5000/api/reports/' + reportId, {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (!res.ok) throw new Error('报告不存在');
+    const report = await res.json();
+    const { renderReport } = await import('../js/report.js');
+    // 临时创建 reportContent div 供 renderReport 使用
+    const container = document.getElementById('modalReportContent');
+    container.innerHTML = '<div id="reportContent"></div>';
+    renderReport(report);
+    // 显示下载按钮
+    document.getElementById('modalActions').style.display = 'block';
+    document.getElementById('modalDownload').onclick = async () => {
+      const { downloadReport } = await import('../js/report.js');
+      downloadReport(reportId);
+    };
+  } catch(e) {
+    document.getElementById('modalReportContent').innerHTML = '<p style="color:#ff4d4f;text-align:center;padding:40px;">加载失败: ' + e.message + '</p>';
+  }
+}
+
 document.getElementById('batchDownloadBtn').onclick = async () => { if(!selectedIds.size) return alert('请勾选报告'); await batchDownload([...selectedIds]); };
+document.getElementById('batchDeleteBtn').onclick = async () => { if(!selectedIds.size) return alert('请勾选报告'); if(!confirm('确定删除选中的 ' + selectedIds.size + ' 份报告吗？此操作不可恢复。')) return; for (const id of selectedIds) { await deleteReport(id); } selectedIds.clear(); render(currentPage); };
 document.getElementById('searchInput').addEventListener('input', debounce(() => render(1), 500));
 document.getElementById('dateFrom').addEventListener('change', () => render(1));
 document.getElementById('dateTo').addEventListener('change', () => render(1));

@@ -41,7 +41,7 @@
     <!-- 3 列核心区域 -->
     <div class="three-col" style="display:none;" id="workArea">
       <!-- 左：文件 & 会话管理 -->
-      <div id="leftPanel"><h4>会话管理</h4>
+      <div id="leftPanel" style="overflow-y:auto;"><h4>会话管理</h4>
         <div id="sessionInfo" style="color:#888;font-size:13px;margin-bottom:8px;">等待文件就绪...</div>
         <div id="strategyInfo" style="font-size:13px;margin-bottom:8px;"></div>
         <div id="templateInfo" style="font-size:13px;margin-bottom:8px;"></div>
@@ -50,16 +50,16 @@
       </div>
 
       <!-- 中：问答区域 -->
-      <div id="centerPanel" style="display:flex;flex-direction:column;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div id="centerPanel" style="display:flex;flex-direction:column;overflow:hidden;height:100%;position:relative;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
           <h4>需求确认</h4>
           <select id="modelSelect" style="padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;font-size:12px;">
             <option value="">DeepSeek V4</option>
             <option value="kimi">Kimi</option>
           </select>
         </div>
-        <div id="chatMessages" class="chat-messages" style="flex:1;"><p style="color:#888;text-align:center;padding:40px;">上传文件后开始对话</p></div>
-        <div id="chatInputArea" style="border-top:1px solid #f0f0f0;padding-top:8px;">
+        <div id="chatMessages" class="chat-messages" style="flex:1;padding-bottom:180px;"><p style="color:#888;text-align:center;padding:40px;">上传文件后开始对话</p></div>
+        <div id="chatInputArea" style="border-top:1px solid #f0f0f0;padding-top:8px;flex-shrink:0;position:absolute;bottom:16px;left:16px;right:16px;background:white;">
           <textarea id="chatInput" rows="6" placeholder="输入分析需求...&#10;输入"确认生成报告"或点击按钮确认 &#10;Enter 发送，Shift+Enter 换行" class="ant-input" style="width:100%;resize:none;"></textarea>
           <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end;">
             <button id="confirmBtn" class="btn btn-primary" style="display:none;" onclick="window._handleConfirm?.()">确认需求</button>
@@ -108,6 +108,24 @@ import { subscribeReportProgress, renderReport, downloadReport, printReport } fr
 
 if (!checkAuth()) { window.location.href = '/pages/login.html'; }
 document.getElementById('logoutLink').addEventListener('click', e => { e.preventDefault(); logout(); });
+
+// 监听窗口变化，动态设置三列+内部区域高度
+function fixLayout() {
+  const wa = document.getElementById('workArea');
+  if (!wa || wa.style.display === 'none') return;
+  const h = window.innerHeight - 180;
+  wa.style.height = h + 'px';
+  // 左中右三个面板统一高度
+  ['leftPanel','centerPanel','rightPanel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.style.display !== 'none') el.style.height = h + 'px';
+  });
+  // 消息区 = 面板高 - 标题(30) - 输入区(180) - padding(32)
+  const msg = document.getElementById('chatMessages');
+  if (msg) msg.style.maxHeight = (h - 250) + 'px';
+}
+window.addEventListener('resize', fixLayout);
+// 只在窗口变化时调整，不轮询
 
 // === 文件上传处理 ===
 window._handleFileSelect = async (fileList) => {
@@ -197,22 +215,41 @@ document.getElementById('chatInput').addEventListener('keydown', async (e) => {
     // "确认生成报告" 等同于点击确认需求按钮
     if (content === '确认生成报告' || content === '确认') {
       renderMessage({ sender: 'user', content });
+      // 提前锁定输入框（按钮由 _handleConfirm 内锁定）
+      e.target.disabled = true;
       window._handleConfirm?.();
       return;
     }
     renderMessage({ sender: 'user', content });
     await sendMessage(content);
+    fixLayout();
   }
 });
 
 // === 确认需求 ===
 window._handleConfirm = async () => {
+  const cb = document.getElementById('confirmBtn');
+  const input = document.getElementById('chatInput');
+  if (cb?.disabled) return;
+  if (cb) { cb.disabled = true; cb.textContent = '生成中...'; cb.style.opacity = '0.6'; }
+  if (input) input.disabled = true;
   try {
     await handleConfirm();
   } catch(e) {
     console.error('Confirm error:', e);
     alert('确认失败: ' + e.message);
+    resetConfirmUI(cb, input);
   }
+};
+function resetConfirmUI(cb, input) {
+  if (cb) { cb.disabled = false; cb.textContent = '确认需求'; cb.style.opacity = '1'; }
+  if (input) { input.disabled = false; input.placeholder = '输入分析需求...'; }
+}
+// 报告生成完成后恢复 UI（在 subscribeReportProgress 完成后调用）
+window._resetAfterReport = () => {
+  const cb = document.getElementById('confirmBtn');
+  const input = document.getElementById('chatInput');
+  resetConfirmUI(cb, input);
 };
 // 确认按钮通过 HTML onclick 绑定，无需重复 addEventListener
 window._handleGenerate = async () => {

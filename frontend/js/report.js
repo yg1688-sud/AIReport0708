@@ -27,6 +27,7 @@ export function subscribeReportProgress(taskId) {
         currentReportId = taskId;
         window._currentReportId = taskId;
         document.getElementById('reportProgressArea').style.display = 'none';
+        window._resetAfterReport?.(); // 恢复确认按钮
         loadAndRenderReport(taskId);
       }
     } catch (e) {
@@ -54,19 +55,53 @@ export function renderReport(report) {
 
   container.innerHTML = `
     ${chapters.customRequirements ? '<div class="card"><h2>确认的分析需求</h2><p style="white-space:pre-wrap;color:#666;">' + chapters.customRequirements + '</p></div>' : ''}
-    ${chapters.computedResults?.length ? '<div class="card"><h2>计算结果</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><thead><tr><th>指标</th><th>数值</th></tr></thead><tbody>' + chapters.computedResults.map(r => { const idx = r.indexOf(':'); return '<tr><td style="padding:10px;"><strong>' + r.substring(0,idx) + '</strong></td><td style="padding:10px;font-size:16px;">' + r.substring(idx+1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : ''}
-    ${!chapters.computedResults?.length && !chapters.crossAnalysis?.length ? '<div class="card"><h2>数据概览</h2><p>总行数：' + (overview.rowCount?.toLocaleString() || '-') + ' | 总列数：' + (overview.columnCount || '-') + '</p><p>文件：' + (overview.fileName || '-') + '</p></div>' : ''}
-    ${!chapters.computedResults?.length && !chapters.crossAnalysis?.length && stats.length ? '<div class="card"><h2>描述性统计</h2><table class="data-table" style="border:1px solid #e8e8e8;"><thead><tr><th>列名</th><th>均值</th><th>中位数</th><th>最小值</th><th>最大值</th></tr></thead><tbody>' + stats.map(s => '<tr><td><strong>' + (s.ColumnName || '') + '</strong></td><td>' + (s.Mean || 0) + '</td><td>' + (s.Median || 0) + '</td><td>' + (s.Min || 0) + '</td><td>' + (s.Max || 0) + '</td></tr>').join('') + '</tbody></table></div>' : ''}
+    ${chapters.computedResults?.length ? (() => {
+      const hasGroups = chapters.computedResults.some(r => r.includes('订单总数=') || r.includes(': 订单总数='));
+      if (hasGroups) {
+        const dataRows = chapters.computedResults.filter(r => !r.startsWith('分组列:') && r !== '---');
+        // 从第一行提取表头：格式为 "片区名: 列1=V1, 列2=V2, ..."
+        let headers = ['分组', '订单总数', '关联任务品订单数', '关联率'];
+        if (dataRows.length > 0) {
+          const first = dataRows[0];
+          // 先按逗号分割，第一段是 "片区名: 列1=V1"
+          const segments = first.split(',');
+          if (segments.length >= 1) {
+            // 第一段: "片区名: 列1=V1" → 冒号后的是第一列数据
+            const firstColon = segments[0].indexOf(':');
+            if (firstColon >= 0) {
+              const firstColPart = segments[0].substring(firstColon + 1); // " 列1=V1"
+              const firstColName = firstColPart.split('=')[0]?.trim() || '';
+              const restHeaders = segments.slice(1).map(h => h.split('=')[0]?.trim()).filter(Boolean);
+              headers = ['分组', firstColName, ...restHeaders];
+            }
+          }
+        }
+        return '<div class="card"><h2>计算结果</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + dataRows.map(r => {
+          // 解析每行: "片区名: 列1=V1, 列2=V2, ..."
+          const colonIdx = r.indexOf(':');
+          const key = colonIdx >= 0 ? r.substring(0, colonIdx).trim() : r;
+          const rest = colonIdx >= 0 ? r.substring(colonIdx + 1) : r;
+          const cols = rest.split(',').map(c => (c.split('=')[1] || '').trim()).filter(Boolean);
+          return '<tr><td><strong>' + key + '</strong></td>' + cols.map(c => '<td>' + (c || '-') + '</td>').join('') + '</tr>';
+        }).join('') + '</tbody></table></div>';
+      }
+      return '<div class="card"><h2>计算结果</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><thead><tr><th>指标</th><th>数值</th></tr></thead><tbody>' + chapters.computedResults.map(r => { const idx = r.indexOf(':'); return '<tr><td style="padding:10px;"><strong>' + r.substring(0,idx) + '</strong></td><td style="padding:10px;font-size:16px;">' + r.substring(idx+1) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    })() : ''}
+    ${!chapters.computedResults?.length && !chapters.crossAnalysis?.length && !chapters.customRequirements ? '<div class="card"><h2>数据概览</h2><p>总行数：' + (overview.rowCount?.toLocaleString() || '-') + ' | 总列数：' + (overview.columnCount || '-') + '</p><p>文件：' + (overview.fileName || '-') + '</p></div>' : ''}
+    ${!chapters.computedResults?.length && !chapters.crossAnalysis?.length && !chapters.customRequirements && stats.length ? '<div class="card"><h2>描述性统计</h2><table class="data-table" style="border:1px solid #e8e8e8;"><thead><tr><th>列名</th><th>均值</th><th>中位数</th><th>最小值</th><th>最大值</th></tr></thead><tbody>' + stats.map(s => '<tr><td><strong>' + (s.ColumnName || '') + '</strong></td><td>' + (s.Mean || 0) + '</td><td>' + (s.Median || 0) + '</td><td>' + (s.Min || 0) + '</td><td>' + (s.Max || 0) + '</td></tr>').join('') + '</tbody></table></div>' : ''}
     ${chapters.crossAnalysis?.length ? '<div class="card"><h2>分组统计结果</h2><table class="data-table" style="border:1px solid #e8e8e8;"><thead><tr><th>分组</th><th>结果</th></tr></thead><tbody>' + chapters.crossAnalysis.map(c => '<tr><td>' + c.split(':')[0] + '</td><td>' + c.split(':').slice(1).join(':') + '</td></tr>').join('') + '</tbody></table></div>' : ''}`;
 
   showPostReportActions(report);
 }
 
 function showPostReportActions(report) {
-  document.getElementById('downloadPrintArea').style.display = 'block';
-  // mode: 0=chat, 1=template. 对话模式才提示保存模版
-  const isChatMode = report.mode === 0 || report.mode === 'chat';
-  document.getElementById('saveTemplatePrompt').style.display = isChatMode ? 'block' : 'none';
+  const dp = document.getElementById('downloadPrintArea');
+  if (dp) dp.style.display = 'block';
+  const sp = document.getElementById('saveTemplatePrompt');
+  if (sp) {
+    const isChatMode = report.mode === 0 || report.mode === 'chat';
+    sp.style.display = isChatMode ? 'block' : 'none';
+  }
 }
 
 // ===== 模版保存提示 (US6 scenario 6-7) =====

@@ -230,7 +230,12 @@ public class ChatService
         if (userMessages.Count == 0)
             return (false, Guid.Empty);
 
-        var fullRequest = string.Join("\n", userMessages);
+        // 取系统最后一条确认消息作为结构化需求（比用户原始消息更清晰）
+        var systemConfirmMsg = recentMessages
+            .Where(m => m.Sender == MessageSender.System)
+            .Select(m => m.Content)
+            .LastOrDefault();
+        var fullRequest = systemConfirmMsg ?? string.Join("\n", userMessages);
         List<string> dimensions, metrics, chartTypes;
 
         // 尝试用 LLM 解析对话提取结构化需求

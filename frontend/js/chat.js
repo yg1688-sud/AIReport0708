@@ -111,7 +111,7 @@ export async function sendMessage(content) {
           if (!data.text.startsWith?.('<!--reasoning:')) {
             fullContent += (data.text || '');
             const textEl = div.querySelector('.stream-text');
-            if (textEl) textEl.textContent = fullContent;
+            if (textEl) textEl.innerHTML = renderMarkdown(fullContent);
           }
         }
 
@@ -131,9 +131,9 @@ export async function sendMessage(content) {
     updateThinkingUI(false);
   } catch (e) {
     if (e.name === 'AbortError') {
-      document.getElementById(msgId).querySelector('.stream-text').textContent = fullContent + '\n\n[已停止思考]';
+      document.getElementById(msgId).querySelector('.stream-text').innerHTML = renderMarkdown(fullContent) + '\n\n[已停止思考]';
     } else {
-      document.getElementById(msgId).querySelector('.stream-text').textContent = '请求失败: ' + e.message;
+      document.getElementById(msgId).querySelector('.stream-text').innerHTML = '请求失败: ' + e.message;
     }
   } finally {
     abortController = null;
@@ -146,10 +146,37 @@ export async function sendMessage(content) {
   }
 }
 
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = text
+    // 转义 HTML
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // 粗体 **text** 或 __text__
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    // 行内代码 `code`
+    .replace(/`([^`]+)`/g, '<code style="background:#ffe8e8;padding:2px 4px;border-radius:3px;font-size:13px;">$1</code>')
+    // 标题 ### / ## / #
+    .replace(/^### (.+)$/gm, '<h4 style="margin:4px 0;">$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3 style="margin:4px 0;">$1</h3>')
+    .replace(/^# (.+)$/gm, '<h2 style="margin:4px 0;">$1</h2>')
+    // 无序列表 - item 或 * item
+    .replace(/^[\-\*] (.+)$/gm, '<li>$1</li>')
+    // 数字列表 1. item
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // 换行
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+  // 包裹连续的 <li>
+  html = html.replace(/(<li>.*?<\/li>(?:<br>)?)+/g, '<ul style="padding-left:20px;margin:4px 0;">$&</ul>');
+  return html;
+}
+
 export function renderMessage(msg) {
   const container = document.getElementById('chatMessages');
   if (!container) return;
   const isUser = msg.sender === 'user';
+  const contentHtml = renderMarkdown(msg.content);
   const reasoningHtml = msg.reasoning
     ? `<details style="margin-top:6px;font-size:12px;color:#888;"><summary style="cursor:pointer;color:#1677ff;"> 思考过程</summary><div style="margin-top:4px;padding:8px;background:#fffbe6;border-radius:4px;border-left:3px solid #faad14;white-space:pre-wrap;">${msg.reasoning}</div></details>`
     : '';
@@ -158,7 +185,7 @@ export function renderMessage(msg) {
     <div style="margin-bottom:12px;display:flex;justify-content:${isUser ? 'flex-end' : 'flex-start'};">
       <div style="max-width:${isUser ? '70%' : '85%'};padding:10px 14px;border-radius:8px;font-size:14px;line-height:1.6;
         ${isUser ? 'background:#1677ff;color:#fff;' : 'background:#f0f0f0;color:#333;'}">
-        ${msg.content.replace(/\n/g, '<br>')}
+        ${contentHtml}
         ${reasoningHtml}
       </div>
     </div>`;

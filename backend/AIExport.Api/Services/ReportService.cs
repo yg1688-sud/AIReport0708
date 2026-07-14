@@ -16,10 +16,8 @@ public class ReportService
     private readonly StorageService _storage;
     private readonly FileParser _parser;
     private readonly PdfGenerator _pdf;
-    private readonly LlmClient? _llm;
-
-    public ReportService(AppDbContext db, StorageService storage, FileParser parser, PdfGenerator pdf, LlmClient? llm = null)
-    { _db = db; _storage = storage; _parser = parser; _pdf = pdf; _llm = llm; }
+    public ReportService(AppDbContext db, StorageService storage, FileParser parser, PdfGenerator pdf)
+    { _db = db; _storage = storage; _parser = parser; _pdf = pdf; }
 
     public async Task<GenerateResult> GenerateAsync(Guid reportId, CancellationToken ct = default)
     {
@@ -58,10 +56,10 @@ public class ReportService
                     { var vals = g.Select(r => r.Count > metricIdx && double.TryParse(r[metricIdx], out var v) ? v : 0).ToList(); if (vals.Count > 0) groupedResults.Add(new { dimension = g.Key, count = g.Count(), sum = vals.Sum(), avg = vals.Average() }); }
             }
 
-            NotifyProgress(reportId, "charts", 70, "正在生成图表数据...");
+            NotifyProgress(reportId, "grouping", 70, "正在按需求分组统计...");
             var chartData = new { type = reqCharts, groupedData = groupedResults };
 
-            NotifyProgress(reportId, "cross-table", 85, "正在计算交叉表...");
+            NotifyProgress(reportId, "computing", 85, "正在生成计算结果...");
             var crossAnalysis = groupedResults.Select(g => { dynamic d = g; return $"{d.dimension}: 计数={d.count}, 合计={d.sum:F2}, 均值={d.avg:F2}"; }).ToList();
 
             // LLM 理解需求 + 代码执行计算
@@ -75,84 +73,17 @@ public class ReportService
             // 代码直接计算（正则匹配常见分析模式：去重/过滤/比率）
             computedResults = ComputeCustomRequirements(customReq, allRows, cols);
 
-            // LLM 补充计算（处理代码正则无法匹配的复杂场景）
-            if (_llm is not null && !string.IsNullOrEmpty(customReq) && computedResults.Count == 0)
-            {
-                var dataSample = $"列名：{string.Join(", ", cols.Take(30))}\n总行数：{totalRows}\n";
-                // 取前3行作为样本
-                var sample = string.Join("\n", allRows.Take(3).Select(r => string.Join(", ", r)));
-                var instrPrompt = $"用户需求：{customReq}\n\n数据文件：{report.OriginalFileName}\n{dataSample}数据样本（前3行）：\n{sample}\n\n请根据用户需求，提取计算步骤（JSON格式）：{{\"steps\":[{{\"desc\":\"步骤描述\",\"op\":\"dedup|filter|count|sum|avg|ratio\",\"column\":\"列名\",\"filterCol\":\"过滤列\",\"filterVal\":\"过滤值\",\"numerator\":\"分子描述\",\"denominator\":\"分母描述\"}}]}} 如果需求明确但无法用这些操作表达，将完整分析放在desc中。只返回JSON。";
-
-                try
-                {
-                    var instrStr = await _llm.ChatForReportAsync(instrPrompt, cols);
-                    // 从 LLM 回复中提取 JSON
-                    var jsonStart = instrStr.IndexOf('{'); var jsonEnd = instrStr.LastIndexOf('}');
-                    if (jsonStart >= 0 && jsonEnd > jsonStart)
-                    {
-                        var json = instrStr[jsonStart..(jsonEnd + 1)];
-                        using var doc = JsonDocument.Parse(json);
-                        if (doc.RootElement.TryGetProperty("steps", out var steps))
-                        {
-                            foreach (var step in steps.EnumerateArray())
-                            {
-                                var op = step.TryGetProperty("op", out var o) ? o.GetString() ?? "" : "";
-                                var col = step.TryGetProperty("column", out var c) ? c.GetString() ?? "" : "";
-                                var fcol = step.TryGetProperty("filterCol", out var fc) ? fc.GetString() : null;
-                                var fval = step.TryGetProperty("filterVal", out var fv) ? fv.GetString() : null;
-                                var desc = step.TryGetProperty("desc", out var d) ? d.GetString() ?? "" : "";
-                                var colIdx = colIndex.Keys.FirstOrDefault(k => k.Contains(col) || col.Contains(k));
-                                if (colIdx is null || !colIndex.TryGetValue(colIdx, out var ci)) continue;
-
-                                if (op == "dedup" && colIdx != null)
-                                {
-                                    var cnt = allRows.Where(r => r.Count > ci && !string.IsNullOrWhiteSpace(r[ci])).Select(r => r[ci].Trim()).Distinct().Count();
-                                    computedResults.Add($"{desc}: {cnt}");
-                                }
-                                else if (op == "filter" && fcol != null && fval != null)
-                                {
-                                    var fci = colIndex.Keys.FirstOrDefault(k => k.Contains(fcol) || fcol.Contains(k));
-                                    if (fci != null && colIndex.TryGetValue(fci, out var fi))
-                                    {
-                                        var filtered = allRows.Where(r => r.Count > fi && r[fi].Trim().Equals(fval, StringComparison.OrdinalIgnoreCase)).ToList();
-                                        var cnt = filtered.Where(r => r.Count > ci && !string.IsNullOrWhiteSpace(r[ci])).Select(r => r[ci].Trim()).Distinct().Count();
-                                        computedResults.Add($"{desc}: {cnt}");
-                                    }
-                                }
-                                else if (op == "count") { computedResults.Add($"{desc}: {allRows.Where(r => r.Count > ci).Count()}"); }
-                                else if (op == "sum" && colIdx != null) { var s = allRows.Where(r => r.Count > ci && double.TryParse(r[ci], out _)).Sum(r => double.Parse(r[ci])); computedResults.Add($"{desc}: {s:F2}"); }
-                                else if (op == "avg" && colIdx != null) { var avg = allRows.Where(r => r.Count > ci && double.TryParse(r[ci], out _)).Average(r => double.Parse(r[ci])); computedResults.Add($"{desc}: {avg:F2}"); }
-                                else { computedResults.Add($"{desc}: 已记录"); }
-                            }
-                            // 比率计算
-                            var ratioSteps = steps.EnumerateArray().Where(s => s.TryGetProperty("op", out var o) && o.GetString() == "ratio");
-                            foreach (var rs in ratioSteps)
-                            {
-                                var num = rs.TryGetProperty("numerator", out var n) ? n.GetString() ?? "" : "";
-                                var den = rs.TryGetProperty("denominator", out var de) ? de.GetString() ?? "" : "";
-                                var desc2 = rs.TryGetProperty("desc", out var d2) ? d2.GetString() ?? "" : "";
-                                double? nv = null, dv = null;
-                                foreach (var r in computedResults) { var p = r.Split(':'); if (p.Length == 2 && double.TryParse(p[1].Trim(), out var v)) { if (r.Contains(num)) nv = v; if (r.Contains(den)) dv = v; } }
-                                if (nv.HasValue && dv.HasValue && dv.Value != 0) computedResults.Add($"{desc2}: {nv.Value / dv.Value * 100:F2}%");
-                            }
-                        }
-                    }
-                }
-                catch { /* LLM 失败，保持 computedResults 已有值 */ }
-            }
-
-            // 格式化输出
+            // 直接使用计算结果，无需 LLM 额外处理
             if (computedResults.Count > 0)
                 analysisText = string.Join("\n", computedResults.Select(r => $"• {r}"));
             else if (crossAnalysis.Count > 0)
                 analysisText = string.Join("\n", crossAnalysis);
 
-            NotifyProgress(reportId, "rendering", 95, "正在渲染报告...");
+            NotifyProgress(reportId, "rendering", 95, "正在生成分析报告...");
             var pdfData = BuildReportData(report, cols, stats, totalRows, crossAnalysis, analysisText, computedResults);
-            byte[] pdfBytes;
+            byte[] pdfBytes = Array.Empty<byte>();
             try { pdfBytes = _pdf.Generate(pdfData); }
-            catch (Exception ex) { Console.Error.WriteLine($"[PDF] Generate failed: {ex.Message}"); pdfBytes = Array.Empty<byte>(); }
-
+            catch (Exception ex) { report.ErrorMessage = "PDF导出失败（分析结果仍可查看）: " + ex.Message; }
             string pdfPath = "";
             if (pdfBytes.Length > 0)
             {
@@ -216,6 +147,10 @@ public class ReportService
             analysisText, computedResults, customReq);
     }
 
+    /// <summary>
+    /// 从用户需求文本中智能提取：分组列、去重列、过滤列+值、比率，并执行计算。
+    /// 不依赖特定关键词顺序，对 LLM 的各种表达方式都兼容。
+    /// </summary>
     public static List<string> ComputeCustomRequirements(string? requirements, List<List<string>> allRows, string[] cols)
     {
         var results = new List<string>();
@@ -223,32 +158,242 @@ public class ReportService
         var colIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < cols.Length; i++) colIndex[cols[i].Trim()] = i;
 
-        // 模式A: "过滤XX列=YY值，然后ZZ列去重"
-        var filterPattern = new Regex(@"过滤\s*(\S+?)\s*[=＝]\s*(\S+?)\s*[，,]\s*(?:然后|再)?\s*(?:对|根据)?\s*(\S+?)\s*(?:列)?\s*去重", RegexOptions.IgnoreCase);
-        foreach (Match m in filterPattern.Matches(requirements))
-        {
-            ComputeFilteredDedup(m.Groups[1].Value.Trim(), m.Groups[2].Value.Trim(), m.Groups[3].Value.Trim(), colIndex, allRows, results);
-        }
-        // 模式B: "根据YY值过滤XX列，然后ZZ列去重"（顺序相反）
-        var filterPattern2 = new Regex(@"根据\s*(\S+?)\s*过滤\s*(\S+?)\s*[，,]\s*(?:然后|再)?\s*(?:对|根据)?\s*(\S+?)\s*(?:列)?\s*去重", RegexOptions.IgnoreCase);
-        foreach (Match m in filterPattern2.Matches(requirements))
-        {
-            ComputeFilteredDedup(m.Groups[2].Value.Trim(), m.Groups[1].Value.Trim(), m.Groups[3].Value.Trim(), colIndex, allRows, results);
+        // === 1. 找出需求文本中出现的所有数据列 ===
+        var mentionedCols = colIndex.Keys.Where(c => requirements.Contains(c)).ToList();
+
+        // === 2. 找分组列：只匹配"分组"关键词附近的列，不降级 ===
+        string? groupCol = null; int groupIdx = -1;
+        var groupKwPos = requirements.IndexOf("分组");
+        if (groupKwPos >= 0) {
+            foreach (var c in mentionedCols) {
+                var pos = requirements.IndexOf(c);
+                if (Math.Abs(pos - groupKwPos) < 15) { groupCol = c; groupIdx = colIndex[c]; break; }
+            }
         }
 
-        // 简单去重计数（如"订单号去重"）
-        var dedupResults = MatchDedupPatterns(requirements, colIndex, allRows);
-        foreach (var dr in dedupResults) { if (!results.Any(r => r.StartsWith(dr.Split(':')[0]))) results.Add(dr); }
-
-        // 比率计算：需求中含有 "/" 时，用已有数值计算比率（小值÷大值）
-        if (requirements.Contains('/') || requirements.Contains('÷'))
+        // === 3. 找去重列：列名 + 去重/不重复/计数 关键词（在40字符内） ===
+        string? dedupCol = null; int dedupIdx = -1;
+        var dedupKw = new[] { "去重", "不重复", "唯一" };
+        foreach (var c in mentionedCols)
         {
-            var numericResults = results.Where(r => { var p = r.Split(':'); return p.Length >= 2 && double.TryParse(p[1].Trim(), out _); }).ToList();
-            if (numericResults.Count >= 2)
+            var pos = requirements.IndexOf(c);
+            var found = false;
+            foreach (var kw in dedupKw) {
+                var kwPos = requirements.IndexOf(kw);
+                if (kwPos >= 0 && Math.Abs(kwPos - pos) < 40) { found = true; break; }
+            }
+            if (found) { dedupCol = c; dedupIdx = colIndex[c]; break; }
+        }
+
+        // === 4. 找过滤列+值：非去重列 + 附近有数字 ===
+        string? filterCol = null; string? filterVal = null; int filterIdx = -1;
+        foreach (var c in mentionedCols)
+        {
+            if (c == dedupCol || c == groupCol) continue;
+            var pos = requirements.IndexOf(c);
+            // 查找列名前后30字符内的数字
+            var start = Math.Max(0, pos - 20);
+            var len = Math.Min(requirements.Length - start, c.Length + 40);
+            var near = requirements.Substring(start, len);
+            var numMatch = Regex.Match(near, @"(\d{2,})");
+            if (numMatch.Success)
             {
-                var vals = numericResults.Select(r => double.Parse(r.Split(':')[1].Trim())).OrderBy(v => v).ToList();
-                var ratio = vals.First() / vals.Last() * 100;
-                results.Add($"比率: {ratio:F2}%");
+                filterCol = c; filterVal = numMatch.Groups[1].Value;
+                filterIdx = colIndex[c]; break;
+            }
+        }
+
+        // === 5. 执行计算 ===
+        if (groupIdx < 0 && dedupIdx >= 0 && (requirements.Contains("按") || requirements.Contains("各") || requirements.Contains("每个")))
+        {
+            // 检测到分组意图但未找到"分组"关键词 → 提示用户重新确认
+            results.Add("未在需求中找到明确的分组关键词（请确保需求描述中包含\"分组\"一词），无法按维度分组。请重新确认需求。");
+        }
+        else if (groupIdx >= 0 && dedupIdx >= 0)
+        {
+            // 分组计算
+            var groups = allRows.Where(r => r.Count > groupIdx && !string.IsNullOrWhiteSpace(r[groupIdx]))
+                .GroupBy(r => r[groupIdx].Trim()).OrderBy(g => g.Key);
+            results.Add($"分组列: {groupCol} | 去重列: {dedupCol} | 过滤: {filterCol}={filterVal}");
+            results.Add("---");
+            foreach (var g in groups)
+            {
+                var rows = g.ToList();
+                var totalDedup = rows.Where(r => r.Count > dedupIdx && !string.IsNullOrWhiteSpace(r[dedupIdx]))
+                    .Select(r => r[dedupIdx].Trim()).Distinct().Count();
+                int filteredDedup = 0;
+                if (filterIdx >= 0 && filterVal != null)
+                {
+                    var filtered = rows.Where(r => r.Count > filterIdx && r[filterIdx].Trim().Equals(filterVal, StringComparison.OrdinalIgnoreCase)).ToList();
+                    filteredDedup = filtered.Where(r => r.Count > dedupIdx && !string.IsNullOrWhiteSpace(r[dedupIdx]))
+                        .Select(r => r[dedupIdx].Trim()).Distinct().Count();
+                }
+                var ratio = totalDedup > 0 ? (double)filteredDedup / totalDedup * 100 : 0;
+                results.Add($"{g.Key}: 订单总数={totalDedup}, 关联任务品订单数={filteredDedup}, 关联率={ratio:F2}%");
+            }
+        }
+        else if (dedupIdx >= 0)
+        {
+            // 无分组，全局计算
+            var totalDedup = allRows.Where(r => r.Count > dedupIdx && !string.IsNullOrWhiteSpace(r[dedupIdx]))
+                .Select(r => r[dedupIdx].Trim()).Distinct().Count();
+            results.Add($"{dedupCol}去重计数: {totalDedup}");
+            if (filterIdx >= 0 && filterVal != null)
+            {
+                var filtered = allRows.Where(r => r.Count > filterIdx && r[filterIdx].Trim().Equals(filterVal, StringComparison.OrdinalIgnoreCase)).ToList();
+                var fcnt = filtered.Where(r => r.Count > dedupIdx && !string.IsNullOrWhiteSpace(r[dedupIdx]))
+                    .Select(r => r[dedupIdx].Trim()).Distinct().Count();
+                results.Add($"过滤{filterCol}={filterVal}后{dedupCol}去重计数: {fcnt}");
+                if (totalDedup > 0) results.Add($"比率: {(double)fcnt / totalDedup * 100:F2}%");
+            }
+        }
+        return results;
+    }
+
+    // === 以下为旧方法，保留供参考 ===
+    public static List<string> ComputeCustomRequirements_Legacy(string? requirements, List<List<string>> allRows, string[] cols)
+    {
+        var results = new List<string>();
+        if (string.IsNullOrEmpty(requirements) || allRows.Count == 0) return results;
+        var colIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < cols.Length; i++) colIndex[cols[i].Trim()] = i;
+
+        // 检测分组维度（如"按片区分组" / "根据片区" / "各片区"）
+        var groupPattern = new Regex(@"(?:按|根据)\s*(\S+?)\s*(?:分组|维度|进行|分别统计|统计)|各\s*(\S+?)\s*(?:分别|单独)", RegexOptions.IgnoreCase);
+        var groupMatch = groupPattern.Match(requirements);
+        string? groupCol = null;
+        int groupIdx = -1;
+        if (groupMatch.Success)
+        {
+            var gc = (groupMatch.Groups[1].Success ? groupMatch.Groups[1] : groupMatch.Groups[2]).Value.Trim();
+            groupCol = colIndex.Keys.FirstOrDefault(k => k.Contains(gc) || gc.Contains(k));
+            if (groupCol != null) colIndex.TryGetValue(groupCol, out groupIdx);
+        }
+        // 正则未匹配时，从列名中查找需求文本里提到的维度列
+        if (groupIdx < 0)
+        {
+            foreach (var c in colIndex.Keys)
+            {
+                if (requirements.Contains(c) && (requirements.Contains("分组") || requirements.Contains("各组") || requirements.Contains("分别") || requirements.Contains("每个") || requirements.Contains("维度") || requirements.Contains("片区")))
+                {
+                    groupCol = c; groupIdx = colIndex[c]; break;
+                }
+            }
+        }
+
+        // 提取去重列名（匹配"订单号去重"、"对订单号进行去重"等表达）
+        var dp = new Regex(@"(?:对|将)?\s*(\S+?)\s*(?:列)?\s*(?:进行|根据|按)?\s*去重(?:计数|统计)?", RegexOptions.IgnoreCase);
+        var dm = dp.Match(requirements);
+        var simpleDedupCol = dm.Success ? dm.Groups[1].Value.Trim() : "";
+        if (string.IsNullOrEmpty(simpleDedupCol))
+        {
+            // 兜底：从需求中找到所有列名中出现"去重"关键词最近的列
+            foreach (var c in colIndex.Keys)
+            {
+                var idx = requirements.IndexOf(c);
+                if (idx >= 0 && requirements.IndexOf("去重", idx) - idx < 30)
+                { simpleDedupCol = c; break; }
+            }
+        }
+        int sdci = -1;
+        var sdcol = colIndex.Keys.FirstOrDefault(k => k.Contains(simpleDedupCol) || simpleDedupCol.Contains(k));
+        if (sdcol != null) colIndex.TryGetValue(sdcol, out sdci);
+
+        // 提取过滤参数
+        string? filterCol = null, filterVal = null, dedupCol = null;
+        // 匹配过滤条件：列名附近出现数字（如"商品ERPID=2520941"、"筛选商品ERPID值为2520941"）
+        var fm = new Regex(@"过滤\s*(\S+?)\s*[=＝：:为是]\s*(\d{2,})", RegexOptions.IgnoreCase).Match(requirements);
+        if (!fm.Success) fm = new Regex(@"筛选\s*(\S+?)\s*[=＝：:为是]?\s*值?[为是]?\s*(\d{2,})", RegexOptions.IgnoreCase).Match(requirements);
+        if (!fm.Success) fm = new Regex(@"根据\s*(\d{2,})\s*过滤\s*(\S+?)", RegexOptions.IgnoreCase).Match(requirements);
+        if (fm.Success && fm.Groups.Count >= 3)
+        {
+            if (decimal.TryParse(fm.Groups[1].Value, out _))
+            { filterCol = fm.Groups[2].Value.Trim(); filterVal = fm.Groups[1].Value.Trim(); }
+            else { filterCol = fm.Groups[1].Value.Trim(); filterVal = fm.Groups[2].Value.Trim(); }
+            // 提取去重列
+            var ddMatch = Regex.Match(requirements, @"(?:然后|再|对)\s*(\S+?)\s*(?:列)?\s*去重");
+            if (ddMatch.Success) dedupCol = ddMatch.Groups[1].Value.Trim();
+        }
+        if (fm.Success)
+        {
+            filterCol = fm.Groups[1].Value.Trim(); filterVal = fm.Groups[2].Value.Trim(); dedupCol = fm.Groups[3].Value.Trim();
+            // 修正：如果 filterCol 是数字或 filterVal 是列名，交换
+            if (decimal.TryParse(filterCol, out _) || colIndex.ContainsKey(filterCol)) {
+                if (decimal.TryParse(filterVal, out _) || !colIndex.ContainsKey(filterVal)) {
+                    // 都不对，尝试从需求中提取
+                    filterCol = null; filterVal = null;
+                }
+            }
+        }
+        // 兜底：在需求文本中查找数字（排除去重列后，找列名前后30字符内的第一个数字）
+        if (string.IsNullOrEmpty(filterCol) || string.IsNullOrEmpty(filterVal))
+        {
+            foreach (var c in colIndex.Keys)
+            {
+                if (c == simpleDedupCol || c == dedupCol) continue;
+                var idx = requirements.IndexOf(c);
+                if (idx < 0) continue;
+                // 取列名前后共30个字符的范围
+                var start = Math.Max(0, idx - 15);
+                var len = Math.Min(requirements.Length - start, c.Length + 30);
+                var near = requirements.Substring(start, len);
+                var numMatch = Regex.Match(near, @"(\d{2,})");
+                if (numMatch.Success)
+                {
+                    filterCol = c; filterVal = numMatch.Groups[1].Value; break;
+                }
+            }
+        }
+
+        // 提取去重列名
+        // 查找列索引
+        var fcol = filterCol != null ? colIndex.Keys.FirstOrDefault(k => k.Contains(filterCol) || filterCol.Contains(k)) : null;
+        var dcol = dedupCol != null ? colIndex.Keys.FirstOrDefault(k => k.Contains(dedupCol) || dedupCol.Contains(k)) : null;
+
+        int fci = -1, dci = -1;
+        if (fcol != null) colIndex.TryGetValue(fcol, out fci);
+        if (dcol != null) colIndex.TryGetValue(dcol, out dci);
+        // 未找到过滤去重列时，使用简单去重列
+        if (dci < 0 && filterCol != null && filterVal != null) { dcol = sdcol; dci = sdci; }
+
+        if (groupIdx >= 0 && sdci >= 0)
+        {
+            // === 按分组计算 ===
+            var groups = allRows.Where(r => r.Count > groupIdx && !string.IsNullOrWhiteSpace(r[groupIdx]))
+                .GroupBy(r => r[groupIdx].Trim()).OrderBy(g => g.Key);
+            results.Add($"分组列: {groupCol} | 总去重列: {sdcol} | 过滤条件: {fcol}={filterVal} | 过滤去重列: {dcol}");
+            results.Add("---");
+            foreach (var g in groups)
+            {
+                var rows = g.ToList();
+                var totalDedup = rows.Where(r => r.Count > sdci && !string.IsNullOrWhiteSpace(r[sdci])).Select(r => r[sdci].Trim()).Distinct().Count();
+                int filteredDedup = 0;
+                if (fci >= 0 && dci >= 0 && filterVal != null)
+                {
+                    var filtered = rows.Where(r => r.Count > fci && r[fci].Trim().Equals(filterVal, StringComparison.OrdinalIgnoreCase)).ToList();
+                    filteredDedup = filtered.Where(r => r.Count > dci && !string.IsNullOrWhiteSpace(r[dci])).Select(r => r[dci].Trim()).Distinct().Count();
+                }
+                var ratio = totalDedup > 0 ? (double)filteredDedup / totalDedup * 100 : 0;
+                results.Add($"{g.Key}: 订单总数={totalDedup}, 关联任务品订单数={filteredDedup}, 关联率={ratio:F2}%");
+            }
+        }
+        else
+        {
+            // === 不分组，全局计算（原逻辑） ===
+            if (fci >= 0 && dci >= 0 && filterVal != null && sdci >= 0)
+                ComputeFilteredDedup(filterCol!, filterVal!, dedupCol!, colIndex, allRows, results);
+
+            var dedupResults = MatchDedupPatterns(requirements, colIndex, allRows);
+            foreach (var dr in dedupResults) { if (!results.Any(r => r.StartsWith(dr.Split(':')[0]))) results.Add(dr); }
+
+            if (requirements.Contains('/') || requirements.Contains('÷'))
+            {
+                var numericResults = results.Where(r => { var p = r.Split(':'); return p.Length >= 2 && double.TryParse(p[1].Trim(), out _); }).ToList();
+                if (numericResults.Count >= 2)
+                {
+                    var vals = numericResults.Select(r => double.Parse(r.Split(':')[1].Trim())).OrderBy(v => v).ToList();
+                    results.Add($"比率: {vals.First() / vals.Last() * 100:F2}%");
+                }
             }
         }
         return results;

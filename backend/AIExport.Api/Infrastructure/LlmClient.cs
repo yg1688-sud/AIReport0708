@@ -129,24 +129,6 @@ public class LlmClient
         }
     }
 
-    /// <summary>快速调用 LLM 生成报告文本</summary>
-    public async Task<string> ChatForReportAsync(string prompt, string[] columns)
-    {
-        var (endpoint, key, modelName) = ResolveModel(null);
-        if (string.IsNullOrEmpty(key)) return "";
-        try
-        {
-            var body = new { model = modelName, messages = new[] { new { role = "user", content = prompt } }, temperature = 0.3, max_tokens = 1000 };
-            var req = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") };
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-            var resp = await _http.SendAsync(req);
-            resp.EnsureSuccessStatusCode();
-            using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync());
-            return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
-        }
-        catch { return ""; }
-    }
-
     private static string BuildRequestBody(string modelName, string systemPrompt, string userMessage,
         List<(string role, string content)>? history = null)
     {
