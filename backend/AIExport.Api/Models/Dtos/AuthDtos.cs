@@ -22,11 +22,11 @@ public record FileInfoDto(Guid Id, string OriginalName, long FileSize, string Fi
 public record UploadResponse(Guid BatchId, List<FileInfoDto> Files);
 
 // === Chat ===
-public record StartChatRequest(Guid BatchId, string Strategy, Guid? TemplateId);
+public class StartChatRequest { public Guid BatchId { get; set; } public string Strategy { get; set; } = ""; public Guid? TemplateId { get; set; } }
 public record StartChatResponse(Guid SessionId, string Mode, string FirstMessage);
-public record SendMessageRequest(Guid SessionId, string Content);
-public record ChatMessageDto(Guid Id, string Sender, string Content, DateTime Timestamp);
-public record ConfirmRequest(Guid SessionId);
+public class SendMessageRequest { public Guid SessionId { get; set; } public string Content { get; set; } = ""; public string? Model { get; set; } }
+public record ChatMessageDto(Guid Id, string Sender, string Content, DateTime Timestamp, string? Reasoning = null);
+public class ConfirmRequest { public Guid SessionId { get; set; } }
 public record ConfirmResponse(Guid TaskId, string Message);
 
 // === Reports ===

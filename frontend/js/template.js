@@ -25,19 +25,23 @@ export function renderTemplateSelector(templates) {
   container.style.display = 'block';
   container.innerHTML = `
     <div class="card" style="margin-top:16px;">
-      <h3 style="margin-bottom:8px;">选择分析模版（可选）</h3>
-      <select id="templateSelect" style="width:100%;padding:8px;border:1px solid #d9d9d9;border-radius:6px;">
-        <option value="">不使用模版（进入对话模式）</option>
-        ${templates.map(t => `<option value="${t.id}">${t.name}（${t.strategy === 'merge' ? '合并' : '分别'}· ${t.columnNames.join(', ')}· ${new Date(t.createdAt).toLocaleDateString()}）</option>`).join('')}
+      <h3 style="margin-bottom:8px;">选择分析模版 <span style="color:#ff4d4f;">*必选</span></h3>
+      <select id="templateSelect" style="width:100%;padding:8px;border:2px solid #1677ff;border-radius:6px;font-size:14px;">
+        <option value="" selected>-- 请选择模版或对话模式 --</option>
+        <option value="__chat__"> 不使用模版（进入对话模式）</option>
+        ${templates.map(t => `<option value="${t.id}">  ${t.name}（${t.strategy === 'merge' ? '合并' : '分别'} · ${new Date(t.createdAt).toLocaleDateString()}）</option>`).join('')}
       </select>
       <div id="templateValidationMsg" style="margin-top:8px;display:none;"></div>
     </div>`;
 
   document.getElementById('templateSelect').addEventListener('change', async (e) => {
     const tid = e.target.value;
-    if (!tid) {
+    if (!tid || tid === '__chat__') {
       selectedTemplateId = null;
-      document.getElementById('templateValidationMsg').style.display = 'none';
+      window._selectedTemplateId = null;
+      document.getElementById('templateValidationMsg').style.display = 'block';
+      document.getElementById('templateValidationMsg').style.color = '#1677ff';
+      document.getElementById('templateValidationMsg').textContent = '已选择对话模式，将通过聊天确认分析需求';
       window.dispatchEvent(new CustomEvent('template-selected', { detail: { templateId: null } }));
       return;
     }
@@ -47,6 +51,7 @@ export function renderTemplateSelector(templates) {
 
 export async function handleTemplateSelect(templateId) {
   selectedTemplateId = templateId;
+  window._selectedTemplateId = templateId;
   await validateTemplate(templateId);
 }
 

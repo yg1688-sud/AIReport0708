@@ -2,28 +2,37 @@
 import { get, post } from './api.js';
 
 let currentReportId = null;
+window._currentReportId = null;
 
 // ===== US6: 报告生成 =====
+let reportPollInterval = null;
+
 export function subscribeReportProgress(taskId) {
-  const eventSource = new EventSource(`http://localhost:5000/api/reports/progress?taskId=${taskId}`);
+  if (reportPollInterval) clearInterval(reportPollInterval);
+
+  document.getElementById('reportProgressArea').style.display = 'block';
   const progressBar = document.getElementById('reportProgressBar');
   const stageText = document.getElementById('reportStageText');
 
-  eventSource.addEventListener('progress', (e) => {
-    const data = JSON.parse(e.data);
-    if (progressBar) progressBar.style.width = data.Percent + '%';
-    if (stageText) stageText.textContent = data.Message;
-    document.getElementById('reportProgressArea').style.display = 'block';
+  reportPollInterval = setInterval(async () => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/reports/progress?taskId=${taskId}`);
+      const data = await res.json();
 
-    if (data.Stage === 'complete') {
-      currentReportId = taskId;
-      eventSource.close();
-      document.getElementById('reportProgressArea').style.display = 'none';
-      loadAndRenderReport(taskId);
+      if (progressBar) progressBar.style.width = data.percent + '%';
+      if (stageText) stageText.textContent = data.message || data.stage;
+
+      if (data.completed) {
+        clearInterval(reportPollInterval);
+        currentReportId = taskId;
+        window._currentReportId = taskId;
+        document.getElementById('reportProgressArea').style.display = 'none';
+        loadAndRenderReport(taskId);
+      }
+    } catch (e) {
+      console.error('Report poll error:', e);
     }
-  });
-
-  eventSource.onerror = () => { eventSource.close(); };
+  }, 1000);
 }
 
 async function loadAndRenderReport(reportId) {
@@ -44,24 +53,20 @@ export function renderReport(report) {
   const stats = chapters.statistics || [];
 
   container.innerHTML = `
-    <div class="card"><h2>一、数据概览</h2>
-      <p>总行数：${overview.rowCount?.toLocaleString() || '-'} | 总列数：${overview.columnCount || '-'} | 缺失率：${((overview.missingRate || 0) * 100).toFixed(1)}%</p>
-      <p>数据文件：${overview.fileName || '-'}</p>
-    </div>
-    <div class="card"><h2>二、描述性统计</h2>
-      <table style="width:100%;border-collapse:collapse;">
-        <tr style="border-bottom:2px solid #e8e8e8;"><th style="padding:8px;">列名</th><th>均值</th><th>中位数</th><th>最小值</th><th>最大值</th><th>标准差</th></tr>
-        ${stats.map(s => `<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:8px;">${s.ColumnName}</td><td>${s.Mean}</td><td>${s.Median}</td><td>${s.Min}</td><td>${s.Max}</td><td>${s.StdDev}</td></tr>`).join('')}
-      </table>
-    </div>
-    <div class="card"><h2>三、图表分析</h2><p>（图表详情在网页端查看）</p></div>
-    <div class="card"><h2>四、交叉分析</h2><p>${chapters.crossAnalysis?.length ? chapters.crossAnalysis.join('; ') : '无交叉分析数据'}</p></div>`;
+    ${chapters.customRequirements ? '<div class="card"><h2>确认的分析需求</h2><p style="white-space:pre-wrap;color:#666;">' + chapters.customRequirements + '</p></div>' : ''}
+    ${chapters.computedResults?.length ? '<div class="card"><h2>计算结果</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><thead><tr><th>指标</th><th>数值</th></tr></thead><tbody>' + chapters.computedResults.map(r => { const idx = r.indexOf(':'); return '<tr><td style="padding:10px;"><strong>' + r.substring(0,idx) + '</strong></td><td style="padding:10px;font-size:16px;">' + r.substring(idx+1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : ''}
+    ${!chapters.computedResults?.length && !chapters.crossAnalysis?.length ? '<div class="card"><h2>数据概览</h2><p>总行数：' + (overview.rowCount?.toLocaleString() || '-') + ' | 总列数：' + (overview.columnCount || '-') + '</p><p>文件：' + (overview.fileName || '-') + '</p></div>' : ''}
+    ${!chapters.computedResults?.length && !chapters.crossAnalysis?.length && stats.length ? '<div class="card"><h2>描述性统计</h2><table class="data-table" style="border:1px solid #e8e8e8;"><thead><tr><th>列名</th><th>均值</th><th>中位数</th><th>最小值</th><th>最大值</th></tr></thead><tbody>' + stats.map(s => '<tr><td><strong>' + (s.ColumnName || '') + '</strong></td><td>' + (s.Mean || 0) + '</td><td>' + (s.Median || 0) + '</td><td>' + (s.Min || 0) + '</td><td>' + (s.Max || 0) + '</td></tr>').join('') + '</tbody></table></div>' : ''}
+    ${chapters.crossAnalysis?.length ? '<div class="card"><h2>分组统计结果</h2><table class="data-table" style="border:1px solid #e8e8e8;"><thead><tr><th>分组</th><th>结果</th></tr></thead><tbody>' + chapters.crossAnalysis.map(c => '<tr><td>' + c.split(':')[0] + '</td><td>' + c.split(':').slice(1).join(':') + '</td></tr>').join('') + '</tbody></table></div>' : ''}`;
+
+  showPostReportActions(report);
 }
 
 function showPostReportActions(report) {
   document.getElementById('downloadPrintArea').style.display = 'block';
-  document.getElementById('saveTemplatePrompt').style.display =
-    report.mode === 'chat' ? 'block' : 'none';
+  // mode: 0=chat, 1=template. 对话模式才提示保存模版
+  const isChatMode = report.mode === 0 || report.mode === 'chat';
+  document.getElementById('saveTemplatePrompt').style.display = isChatMode ? 'block' : 'none';
 }
 
 // ===== 模版保存提示 (US6 scenario 6-7) =====
@@ -81,8 +86,16 @@ window._saveTemplate = async () => {
 
 // ===== US7: 下载 & 打印 =====
 export async function downloadReport(reportId) {
+  const id = reportId || currentReportId;
   const token = localStorage.getItem('token');
-  window.open(`http://localhost:5000/api/reports/${reportId || currentReportId}/download?token=${token}`, '_blank');
+  const a = document.createElement('a');
+  a.href = `http://localhost:5000/api/reports/${id}/download`;
+  // 通过 fetch + blob 下载（支持 Authorization 头）
+  const res = await fetch(a.href, { headers: { Authorization: `Bearer ${token}` } });
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  a.href = url; a.download = `report-${id}.pdf`; a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function printReport(reportId) {

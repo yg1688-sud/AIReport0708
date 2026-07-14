@@ -13,7 +13,7 @@ async function request(path, options = {}) {
 
   if (res.status === 401) {
     localStorage.removeItem('token');
-    window.location.hash = '#login';
+    window.location.href = '/pages/login.html';
     throw new Error('会话已过期，请重新登录');
   }
 

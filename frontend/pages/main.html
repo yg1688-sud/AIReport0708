@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>主页 - AIExport</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5.x/dist/reset.css">
+<link rel="stylesheet" href="../css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.x/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="layout">
+  <!-- 侧边栏 -->
+  <nav class="sidebar"><div class="logo">AIExport</div><ul class="menu">
+    <li><a href="/pages/main.html" class="active">📊 数据分析</a></li>
+    <li><a href="/pages/history.html">📋 历史报告</a></li>
+    <li><a href="/pages/templates.html">📁 模版管理</a></li>
+    <li><a href="/pages/admin.html">👤 用户管理</a></li>
+    <li style="margin-top:auto;"><a href="#" id="logoutLink" style="color:#ff4d4f;">退出登录</a></li>
+  </ul></nav>
+
+  <div class="main-content">
+    <!-- 上传区域 -->
+    <div id="uploadArea" class="card no-print" style="margin-bottom:12px;padding:12px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-weight:600;">上传数据：</span>
+        <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv" style="display:none;">
+        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">选择文件</button>
+        <span style="color:#888;font-size:12px;">.xlsx .xls .csv · ≤100MB · 最多20个</span>
+        <button id="clearAllBtn" class="btn btn-danger" style="display:none;margin-left:auto;" onclick="window._handleClearAll?.()">清空</button>
+      </div>
+      <div id="fileList" style="margin-top:8px;"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+        <span id="overallProgress" style="color:#888;font-size:12px;"></span>
+        <div style="flex:1;"><div class="progress-bar"><div id="overallProgressBar" class="fill" style="width:0%"></div></div></div>
+      </div>
+    </div>
+
+    <!-- 策略 / 模版选择 -->
+    <div id="strategySelector" style="display:none;"></div>
+    <div id="templateSelector" style="display:none;"></div>
+
+    <!-- 3 列核心区域 -->
+    <div class="three-col" style="display:none;" id="workArea">
+      <!-- 左：文件 & 会话管理 -->
+      <div id="leftPanel"><h4>会话管理</h4>
+        <div id="sessionInfo" style="color:#888;font-size:13px;margin-bottom:8px;">等待文件就绪...</div>
+        <div id="strategyInfo" style="font-size:13px;margin-bottom:8px;"></div>
+        <div id="templateInfo" style="font-size:13px;margin-bottom:8px;"></div>
+        <button id="generateBtn" class="btn btn-success" style="width:100%;display:none;" onclick="window._handleGenerate?.()">立即生成报告</button>
+        <div id="sessionTimeoutMsg" style="color:#ff4d4f;font-size:12px;margin-top:8px;display:none;"></div>
+      </div>
+
+      <!-- 中：问答区域 -->
+      <div id="centerPanel" style="display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h4>需求确认</h4>
+          <select id="modelSelect" style="padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;font-size:12px;">
+            <option value="">DeepSeek V4</option>
+            <option value="kimi">Kimi</option>
+          </select>
+        </div>
+        <div id="chatMessages" class="chat-messages" style="flex:1;"><p style="color:#888;text-align:center;padding:40px;">上传文件后开始对话</p></div>
+        <div id="chatInputArea" style="border-top:1px solid #f0f0f0;padding-top:8px;">
+          <textarea id="chatInput" rows="6" placeholder="输入分析需求...&#10;输入"确认生成报告"或点击按钮确认 &#10;Enter 发送，Shift+Enter 换行" class="ant-input" style="width:100%;resize:none;"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end;">
+            <button id="confirmBtn" class="btn btn-primary" style="display:none;" onclick="window._handleConfirm?.()">确认需求</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右：报告展示（默认隐藏，生成报告时显示） -->
+      <div id="rightPanel" style="display:none;"><h4>分析报告</h4>
+        <div id="reportProgressArea" style="display:none;">
+          <p id="reportStageText" style="color:#888;">准备中...</p>
+          <div class="progress-bar"><div id="reportProgressBar" class="fill" style="width:0%"></div></div>
+        </div>
+        <div id="reportContent"><p style="color:#888;text-align:center;padding:40px;">正在生成报告...</p></div>
+        <div id="downloadPrintArea" style="display:none;margin-top:8px;text-align:center;">
+          <button onclick="window._downloadReport?.()" class="btn btn-primary">下载 PDF</button>
+          <button onclick="window._printReport?.()" class="btn btn-default" style="margin-left:8px;">打印报告</button>
+        </div>
+        <div id="saveTemplatePrompt" style="display:none;margin-top:8px;padding:12px;background:#f6ffed;border:1px solid #b7eb8f;border-radius:6px;">
+          <strong>保存分析模版</strong>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <input id="templateNameInput" type="text" placeholder="输入模版名称" class="ant-input" style="flex:1;">
+            <button onclick="window._saveTemplate?.()" class="btn btn-primary">保存</button>
+            <button onclick="document.getElementById('saveTemplatePrompt').style.display='none'" class="btn btn-default">暂不</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="../js/api.js"></script>
+<script type="module" src="../js/auth.js"></script>
+<script type="module" src="../js/utils.js"></script>
+<script type="module" src="../js/upload.js"></script>
+<script type="module" src="../js/template.js"></script>
+<script type="module" src="../js/chat.js"></script>
+<script type="module" src="../js/report.js"></script>
+
+<script type="module">
+import { checkAuth, logout, getUser } from '../js/auth.js';
+import { uploadFiles, renderFileList, subscribeProgress, showStrategySelector, getCurrentBatchId, getCurrentStrategy } from '../js/upload.js';
+import { loadTemplates, renderTemplateSelector } from '../js/template.js';
+import { startChat, sendMessage, handleConfirm, renderMessage } from '../js/chat.js';
+import { subscribeReportProgress, renderReport, downloadReport, printReport } from '../js/report.js';
+
+if (!checkAuth()) { window.location.href = '/pages/login.html'; }
+document.getElementById('logoutLink').addEventListener('click', e => { e.preventDefault(); logout(); });
+
+// === 文件上传处理 ===
+window._handleFileSelect = async (fileList) => {
+  if (!fileList || fileList.length === 0) return;
+  document.getElementById('clearAllBtn').style.display = 'inline-block';
+
+  // 重置对话：清空聊天记录和会话状态
+  document.getElementById('chatMessages').innerHTML = '<p style="color:#888;text-align:center;padding:40px;">上传文件后开始对话</p>';
+  window._currentSessionId = null;
+  window._selectedTemplateId = null;
+  document.getElementById('rightPanel').style.display = 'none';
+  document.getElementById('confirmBtn').style.display = 'none';
+  document.getElementById('generateBtn').style.display = 'none';
+  document.getElementById('saveTemplatePrompt').style.display = 'none';
+  document.getElementById('downloadPrintArea').style.display = 'none';
+
+  const existingBatchId = getCurrentBatchId();
+  const res = await uploadFiles(fileList, existingBatchId);
+  renderFileList(res, !!existingBatchId);
+  subscribeProgress(res.batchId);
+  document.getElementById('sessionInfo').textContent = `文件数: ${fileList.length}`;
+
+  window.addEventListener('batch-ready', async (e) => {
+    document.getElementById('sessionInfo').textContent = '所有文件就绪';
+    const fileCount = e.detail?.totalFiles || fileList.length;
+    showStrategySelector(fileCount);
+  });
+
+  window.addEventListener('strategy-selected', async (e) => {
+    const st = getCurrentStrategy() || 'merge';
+    document.getElementById('strategyInfo').textContent = `策略: ${st === 'merge' ? '合并分析' : '分别分析'}`;
+
+    const templates = await loadTemplates();
+    if (templates.length > 0) {
+      renderTemplateSelector(templates);
+      // 等待用户选择模版后再展示工作区
+    } else {
+      // 无模版，直接展示对话区
+      document.getElementById('workArea').style.display = 'grid';
+      document.getElementById('workArea').style.gridTemplateColumns = '280px 1fr';
+      await enterChatMode();
+    }
+  });
+
+  // 监听模版选择变化（支持反复切换）
+  window.addEventListener('template-selected', async (ev) => {
+    const tid = ev.detail?.templateId;
+    document.getElementById('workArea').style.display = 'grid';
+    document.getElementById('workArea').style.gridTemplateColumns = '280px 1fr';
+    if (tid && ev.detail?.valid) {
+      // 模版模式
+      document.getElementById('templateInfo').textContent = '已选模版';
+      document.getElementById('centerPanel').style.display = 'none';
+      document.getElementById('confirmBtn').style.display = 'none';
+      document.getElementById('generateBtn').style.display = 'block';
+    } else {
+      // 不使用模版 → 对话模式
+      document.getElementById('templateInfo').textContent = '';
+      document.getElementById('generateBtn').style.display = 'none';
+      await enterChatMode();
+    }
+  });
+};
+
+async function enterChatMode() {
+  document.getElementById('centerPanel').style.display = 'block';
+  document.getElementById('confirmBtn').style.display = 'inline-block';
+  document.getElementById('generateBtn').style.display = 'none';
+  document.getElementById('rightPanel').style.display = 'none';
+  // 2 列布局（左+中）
+  document.getElementById('workArea').style.gridTemplateColumns = '280px 1fr';
+  document.getElementById('chatMessages').innerHTML = '';
+  const batchId = getCurrentBatchId();
+  const strategy = getCurrentStrategy() || 'merge';
+  const result = await startChat(batchId, strategy);
+  document.getElementById('sessionInfo').textContent = result.mode === 'template' ? '模版模式' : '对话模式';
+}
+
+// === 聊天输入（Enter 发送，Shift+Enter 换行） ===
+document.getElementById('chatInput').addEventListener('keydown', async (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    const content = e.target.value.trim();
+    if (!content || e.target.disabled) return;
+    e.target.value = '';
+    // "确认生成报告" 等同于点击确认需求按钮
+    if (content === '确认生成报告' || content === '确认') {
+      renderMessage({ sender: 'user', content });
+      window._handleConfirm?.();
+      return;
+    }
+    renderMessage({ sender: 'user', content });
+    await sendMessage(content);
+  }
+});
+
+// === 确认需求 ===
+window._handleConfirm = async () => {
+  try {
+    await handleConfirm();
+  } catch(e) {
+    console.error('Confirm error:', e);
+    alert('确认失败: ' + e.message);
+  }
+};
+// 确认按钮通过 HTML onclick 绑定，无需重复 addEventListener
+window._handleGenerate = async () => {
+  const token = localStorage.getItem('token');
+  const batchId = getCurrentBatchId();
+  const strategy = getCurrentStrategy() || 'merge';
+  // 直接从 select 元素获取所选模版 ID
+  const sel = document.getElementById('templateSelect');
+  const templateId = sel?.value || window._selectedTemplateId;
+
+  if (!batchId) { alert('请先上传文件'); return; }
+  if (!templateId || templateId === '__chat__') { alert('请先选择分析模版'); return; }
+
+  try {
+    document.getElementById('generateBtn').disabled = true;
+    document.getElementById('generateBtn').textContent = '启动中...';
+
+    const startRes = await fetch('http://localhost:5000/api/chat/start', {
+      method: 'POST', headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
+      body: JSON.stringify({ batchId, strategy, templateId })
+    });
+    if (!startRes.ok) { const e = await startRes.json(); alert('启动失败: ' + (e.error?.message || '未知错误')); return; }
+    const startData = await startRes.json();
+
+    const confirmRes = await fetch('http://localhost:5000/api/chat/confirm', {
+      method: 'POST', headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
+      body: JSON.stringify({ sessionId: startData.sessionId })
+    });
+    if (!confirmRes.ok) { const e = await confirmRes.json(); alert('确认失败: ' + (e.error?.message || '未知错误')); return; }
+    const data = await confirmRes.json();
+    startReport(data.taskId);
+  } catch(e) {
+    console.error(e);
+    alert('生成失败: ' + e.message);
+  } finally {
+    document.getElementById('generateBtn').disabled = false;
+    document.getElementById('generateBtn').textContent = '立即生成报告';
+  }
+};
+
+// === 报告进度 & 展示 ===
+function startReport(taskId) {
+  document.getElementById('rightPanel').style.display = 'block';
+  document.getElementById('reportProgressArea').style.display = 'block';
+  document.getElementById('reportContent').innerHTML = '<p style=\"color:#888;text-align:center;padding:20px;\">正在生成报告...</p>';
+  // 对话模式=3列，模版模式=2列（左+右）
+  const isTemplate = document.getElementById('centerPanel').style.display === 'none';
+  document.getElementById('workArea').style.gridTemplateColumns = isTemplate ? '280px 1fr' : '280px 1fr 1fr';
+  subscribeReportProgress(taskId);
+}
+
+window.addEventListener('report-confirmed', e => startReport(e.detail.taskId));
+
+// === 下载 & 打印 ===
+window._downloadReport = () => downloadReport();
+window._printReport = () => printReport();
+
+// === 模版保存 ===
+window._saveTemplate = async () => {
+  const name = document.getElementById('templateNameInput')?.value?.trim();
+  if (!name) { alert('模版名称不能为空'); return; }
+  const sessionId = window._currentSessionId;
+  if (!sessionId) { alert('会话不存在'); return; }
+  const token = localStorage.getItem('token');
+  const res = await fetch('http://localhost:5000/api/templates', {
+    method: 'POST', headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
+    body: JSON.stringify({ sessionId, name })
+  });
+  if (res.status === 201 || res.ok) {
+    document.getElementById('saveTemplatePrompt').style.display = 'none';
+    alert('模版保存成功');
+  } else {
+    const err = await res.json();
+    if (res.status === 409 && confirm('模版名称已存在，是否覆盖？')) {
+      // 覆盖：先用 PUT 或先删除再保存
+      alert('请手动删除旧模版后重试，或在模版管理页面操作');
+    } else {
+      alert(err.error?.message || '保存失败');
+    }
+  }
+};
+
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files?.length > 0) window._handleFileSelect?.(e.target.files);
+});
+
+// 从历史报告页跳转来查看报告
+(async () => {
+  const rid = localStorage.getItem('viewReportId');
+  if (rid) {
+    localStorage.removeItem('viewReportId');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:5000/api/reports/' + rid, {
+        headers: { Authorization: 'Bearer ' + token }
+      });
+      if (!res.ok) { alert('报告加载失败'); return; }
+      const report = await res.json();
+      document.getElementById('workArea').style.display = 'grid';
+      document.getElementById('workArea').style.gridTemplateColumns = '280px 1fr';
+      document.getElementById('centerPanel').style.display = 'none';
+      document.getElementById('rightPanel').style.display = 'block';
+      const { renderReport } = await import('../js/report.js');
+      renderReport(report);
+      // 显示下载按钮
+      document.getElementById('downloadPrintArea').style.display = 'block';
+    } catch(e) { alert('加载失败: ' + e.message); }
+  }
+})();
+</script>
+</body>
+</html>

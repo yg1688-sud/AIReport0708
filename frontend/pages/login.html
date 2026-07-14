@@ -59,8 +59,7 @@
 
       try {
         await login(username, password);
-        window.location.hash = '#main';
-        window.location.reload();
+        window.location.href = '/pages/main.html#main';
       } catch (err) {
         errorMsg.textContent = err.message || '登录失败，请重试';
         errorMsg.style.display = 'block';

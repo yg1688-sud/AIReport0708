@@ -54,6 +54,7 @@ public class TemplateService
             ChartTypes = req.ChartTypes,
             Filters = req.Filters,
             ColumnNames = columnNames,
+            CustomRequirements = req.CustomRequirements,
             Strategy = session.Batch.Strategy ?? Strategy.Merge
         };
 
@@ -67,6 +68,9 @@ public class TemplateService
         var template = await _db.AnalysisTemplates
             .FirstOrDefaultAsync(t => t.Id == templateId && t.UserId == userId)
             ?? throw new InvalidOperationException("模版不存在");
+        // 解除关联会话的模版引用
+        var sessions = await _db.AnalysisSessions.Where(s => s.TemplateId == templateId).ToListAsync();
+        foreach (var s in sessions) s.TemplateId = null;
         _db.AnalysisTemplates.Remove(template);
         await _db.SaveChangesAsync();
     }

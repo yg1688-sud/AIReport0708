@@ -12,27 +12,32 @@ public static class HistoryEndpoints
         var group = app.MapGroup("/api").RequireAuthorization();
 
         // 历史报告列表（分页+搜索+筛选）
-        group.MapGet("/reports", async (int page, int pageSize, string? keyword,
-            DateTime? dateFrom, DateTime? dateTo, AppDbContext db, ClaimsPrincipal user) =>
+        group.MapGet("/reports", async (int? page, int? pageSize, string? keyword,
+            string? dateFrom, string? dateTo, AppDbContext db, ClaimsPrincipal user) =>
         {
             var userId = Guid.Parse(user.FindFirstValue(ClaimTypes.NameIdentifier)!);
-            page = Math.Max(1, page);
-            pageSize = Math.Clamp(pageSize, 1, 100);
+            var p = Math.Max(1, page ?? 1);
+            var ps = Math.Clamp(pageSize ?? 20, 1, 100);
+            DateTime? df = string.IsNullOrWhiteSpace(dateFrom) ? (DateTime?)null : DateTime.Parse(dateFrom);
+            DateTime? dt = string.IsNullOrWhiteSpace(dateTo) ? (DateTime?)null : DateTime.Parse(dateTo);
 
-            var query = db.AnalysisReports.AsQueryable();
+            var query = db.AnalysisReports
+                .Include(r => r.Session).ThenInclude(s => s.Batch)
+                .Where(r => r.Session.Batch.UserId == userId)
+                .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(keyword))
                 query = query.Where(r => r.OriginalFileName.Contains(keyword));
-            if (dateFrom.HasValue)
-                query = query.Where(r => r.CreatedAt >= dateFrom.Value);
-            if (dateTo.HasValue)
-                query = query.Where(r => r.CreatedAt <= dateTo.Value);
+            if (df.HasValue)
+                query = query.Where(r => r.CreatedAt >= df.Value);
+            if (dt.HasValue)
+                query = query.Where(r => r.CreatedAt <= dt.Value);
 
             var total = await query.CountAsync();
             var items = await query
                 .OrderByDescending(r => r.CreatedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
+                .Skip((p - 1) * ps)
+                .Take(ps)
                 .Select(r => new
                 {
                     r.Id, r.OriginalFileName, ReportStatus = r.ReportStatus.ToString().ToLower(),
@@ -41,7 +46,7 @@ public static class HistoryEndpoints
                 })
                 .ToListAsync();
 
-            return Results.Ok(new { items, total, page, pageSize });
+            return Results.Ok(new { items, total, page = p, pageSize = ps });
         });
 
         // 删除报告

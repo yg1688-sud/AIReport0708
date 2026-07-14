@@ -11,30 +11,8 @@
   <div id="app"></div>
 
   <script>
-    // SPA 路由入口 — 根据 hash 加载不同页面
-    const page = window.location.hash.replace('#', '') || 'login';
-    const pages = {
-      login: 'pages/login.html',
-      main: 'pages/main.html',
-      history: 'pages/history.html',
-      templates: 'pages/templates.html',
-      admin: 'pages/admin.html',
-    };
-    const target = pages[page] || pages.login;
-    fetch(target)
-      .then(r => r.text())
-      .then(html => {
-        document.getElementById('app').innerHTML = html;
-        // 加载对应 JS 模块
-        const moduleMap = {
-          login: 'js/auth.js',
-          main: 'js/upload.js',
-          history: 'js/report.js',
-          admin: 'js/admin.js',
-        };
-        const mod = moduleMap[page];
-        if (mod) import(mod.startsWith('js/') ? mod : '../' + mod);
-      });
+    // 入口：直接跳转登录页
+    window.location.replace('/pages/login.html');
   </script>
 </body>
 </html>

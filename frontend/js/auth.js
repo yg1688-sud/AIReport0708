@@ -18,11 +18,26 @@ export async function login(username, password) {
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
-  window.location.hash = '#login';
+  window.location.href = '/pages/login.html';
 }
 
 export function checkAuth() {
   const token = getToken();
-  if (!token) { window.location.hash = '#login'; return false; }
+  if (!token) { window.location.href = '/pages/login.html'; return false; }
   return true;
 }
+
+export function isAdmin() {
+  const user = getUser();
+  return user?.role === 'admin';
+}
+
+// 页面加载时自动隐藏管理员菜单（非 admin 用户）
+document.addEventListener('DOMContentLoaded', () => {
+  if (!isAdmin()) {
+    // 隐藏侧边栏中的管理员菜单项
+    document.querySelectorAll('.sidebar .menu li').forEach(li => {
+      if (li.textContent?.includes('用户管理')) li.style.display = 'none';
+    });
+  }
+});

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AIExport.Api.Data;
 using AIExport.Api.Infrastructure;
 using AIExport.Api.Services;
 
@@ -17,27 +18,21 @@ public static class ReportEndpoints
             return Results.Ok(new { taskId = reportId, message = "报告生成任务已提交" });
         });
 
-        // SSE 报告生成进度
-        group.MapGet("/reports/progress", async (Guid taskId, HttpContext context, CancellationToken ct) =>
+        // 报告进度轮询
+        app.MapGet("/api/reports/progress", async (Guid taskId, AppDbContext db) =>
         {
-            context.Response.ContentType = "text/event-stream";
-            context.Response.Headers["Cache-Control"] = "no-cache";
-
-            while (!ct.IsCancellationRequested)
-            {
-                var evt = ProgressHub.GetLatest(taskId);
-                if (evt is not null)
-                {
-                    var json = JsonSerializer.Serialize(evt);
-                    await context.Response.WriteAsync($"event: progress\ndata: {json}\n\n", ct);
-                    await context.Response.Body.FlushAsync(ct);
-
-                    if (evt.Stage == "complete") break;
-                }
-
-                await Task.Delay(500, ct);
-            }
-        }).AllowAnonymous();
+            var report = await db.AnalysisReports.FindAsync(taskId);
+            if (report is null) return Results.NotFound();
+            var evt = ProgressHub.GetLatest(taskId);
+            return Results.Ok(new {
+                reportId = taskId,
+                status = report.ReportStatus.ToString().ToLower(),
+                stage = evt?.Stage ?? "",
+                percent = evt?.Percent ?? 0,
+                message = evt?.Message ?? (report.ReportStatus == Models.Entities.ReportStatus.Completed ? "报告生成完成" : "正在生成..."),
+                completed = report.ReportStatus == Models.Entities.ReportStatus.Completed
+            });
+        });
 
         // 获取报告详情
         group.MapGet("/reports/{reportId}", async (Guid reportId, ReportService reportService) =>

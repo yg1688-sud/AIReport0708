@@ -4,6 +4,7 @@
   --bg-color: #f5f5f5;
   --card-bg: #ffffff;
   --text-color: #1f1f1f;
+  --sidebar-width: 200px;
   --border-radius: 8px;
 }
 
@@ -16,89 +17,135 @@ body {
   min-height: 100vh;
 }
 
-#app { max-width: 1400px; margin: 0 auto; padding: 16px; }
+/* === 侧边栏布局 === */
+.layout { display: flex; min-height: 100vh; }
 
-/* === 响应式布局 === */
-/* 平板端 768×1024 */
-@media (max-width: 768px) {
-  #app { padding: 8px; max-width: 100%; }
+.sidebar {
+  width: var(--sidebar-width);
+  background: #001529;
+  color: #fff;
+  position: fixed; top: 0; left: 0; bottom: 0;
+  overflow-y: auto; z-index: 100;
+  display: flex; flex-direction: column;
+}
+.sidebar .logo {
+  padding: 20px 16px; font-size: 18px; font-weight: bold;
+  color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1);
+  text-align: center;
+}
+.sidebar .menu { list-style: none; padding: 8px 0; }
+.sidebar .menu li { padding: 0; }
+.sidebar .menu a {
+  display: block; padding: 12px 24px; color: rgba(255,255,255,0.65);
+  text-decoration: none; font-size: 14px; transition: all 0.2s;
+}
+.sidebar .menu a:hover, .sidebar .menu a.active {
+  color: #fff; background: var(--primary-color);
+}
+.sidebar .menu a .icon { margin-right: 8px; }
 
-  /* 导航简化为汉堡菜单 */
-  .desktop-nav { display: none; }
-  .mobile-nav { display: block; }
-
-  /* 文件列表项增大触控区域 */
-  .file-item { min-height: 44px; padding: 12px; }
-  .file-item button { min-width: 44px; min-height: 44px; }
-
-  /* 聊天输入框固定在底部全宽 */
-  .chat-input-area {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    background: var(--card-bg); padding: 8px; z-index: 100;
-  }
-
-  /* 报告章节 Tab 改为纵向手风琴折叠面板 */
-  .report-tabs { flex-direction: column; }
+.main-content {
+  margin-left: var(--sidebar-width);
+  flex: 1; padding: 20px;
+  min-height: 100vh;
 }
 
-/* 桌面端 1920×1080 */
-@media (min-width: 1920px) {
-  #app { max-width: 1800px; }
+/* === 3 列布局（主页） === */
+.three-col {
+  display: grid;
+  grid-template-columns: 280px 1fr 1fr;
+  gap: 16px; height: calc(100vh - 200px);
+}
+.three-col > div {
+  background: var(--card-bg); border-radius: var(--border-radius);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  overflow-y: auto; padding: 16px;
+  max-height: 100%;
 }
 
-/* 默认显示桌面导航，隐藏移动导航 */
-.desktop-nav { display: flex; }
-.mobile-nav { display: none; }
-
-/* === 通用组件 === */
+/* === 通用卡片 === */
 .card {
-  background: var(--card-bg);
-  border-radius: var(--border-radius);
-  padding: 24px;
-  margin-bottom: 16px;
+  background: var(--card-bg); border-radius: var(--border-radius);
+  padding: 24px; margin-bottom: 16px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
+/* === 登录页 === */
 .login-container {
-  max-width: 400px;
-  margin: 100px auto;
+  max-width: 400px; margin: 100px auto;
 }
 
+/* === 上传区域 === */
 .upload-zone {
-  border: 2px dashed #d9d9d9;
-  border-radius: var(--border-radius);
-  padding: 40px;
-  text-align: center;
-  cursor: pointer;
+  border: 2px dashed #d9d9d9; border-radius: var(--border-radius);
+  padding: 40px; text-align: center; cursor: pointer;
   transition: border-color 0.3s;
 }
 .upload-zone:hover { border-color: var(--primary-color); }
 
+/* === 进度条 === */
 .progress-bar {
-  height: 8px;
-  background: #e8e8e8;
-  border-radius: 4px;
-  overflow: hidden;
+  height: 8px; background: #e8e8e8; border-radius: 4px; overflow: hidden;
 }
 .progress-bar .fill {
-  height: 100%;
-  background: var(--primary-color);
+  height: 100%; background: var(--primary-color);
   transition: width 0.3s ease;
 }
 
-.chat-area {
-  max-height: 500px;
-  overflow-y: auto;
-  padding: 16px;
-  border: 1px solid #e8e8e8;
-  border-radius: var(--border-radius);
+/* === 聊天区域 === */
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: 8px;
+  min-height: 300px; max-height: calc(100vh - 250px);
+}
+.chat-bubble {
+  max-width: 80%; padding: 10px 14px; border-radius: 8px;
+  margin-bottom: 8px; font-size: 14px; line-height: 1.6;
+}
+.chat-bubble.user { background: #1677ff; color: #fff; margin-left: auto; }
+.chat-bubble.system { background: #f0f0f0; color: #333; }
+
+/* === 文件列表项 === */
+.file-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border: 1px solid #e8e8e8;
+  border-radius: 6px; margin-bottom: 8px;
+}
+
+/* === 表格 === */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th, .data-table td {
+  padding: 8px 12px; text-align: left; border-bottom: 1px solid #f0f0f0;
+}
+.data-table th { background: #fafafa; font-weight: 600; }
+
+/* === 按钮 === */
+.btn { padding: 8px 16px; border-radius: 6px; cursor: pointer; border: none; font-size: 14px; }
+.btn-primary { background: var(--primary-color); color: #fff; }
+.btn-danger { background: #ff4d4f; color: #fff; }
+.btn-default { background: #fff; border: 1px solid #d9d9d9; color: #333; }
+.btn-success { background: #52c41a; color: #fff; }
+
+/* === 响应式 === */
+@media (max-width: 768px) {
+  .sidebar { width: 0; overflow: hidden; }
+  .sidebar.open { width: var(--sidebar-width); }
+  .main-content { margin-left: 0; }
+  .three-col { grid-template-columns: 1fr; }
+  .file-item button { min-width: 44px; min-height: 44px; }
+}
+@media (min-width: 1920px) {
+  .main-content { max-width: 1800px; }
 }
 
 /* === 打印样式 === */
 @media print {
-  body { background: white; }
-  .no-print { display: none !important; }
-  #app { max-width: 100%; padding: 0; }
+  .sidebar, .no-print { display: none !important; }
+  .main-content { margin-left: 0; padding: 0; }
   .card { box-shadow: none; border: 1px solid #ccc; page-break-inside: avoid; }
   @page { size: A4; margin: 15mm; }
 }
+
+/* === Ant Design 补丁 === */
+.ant-input { width: 100%; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; }
+.ant-input:focus { border-color: var(--primary-color); outline: none; box-shadow: 0 0 0 2px rgba(22,119,255,0.2); }
+.ant-modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: flex; align-items: center; justify-content: center; }

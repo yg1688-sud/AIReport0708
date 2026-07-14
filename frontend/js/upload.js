@@ -3,13 +3,14 @@ import { post, get, del } from './api.js';
 import { formatFileSize } from './utils.js';
 
 let currentBatchId = null;
-let progressSubscriber = null;
+let progressSubscriber = null; // setInterval ID
 
 export function getCurrentBatchId() { return currentBatchId; }
 
-export async function uploadFiles(fileList) {
+export async function uploadFiles(fileList, existingBatchId) {
   const formData = new FormData();
   for (const file of fileList) formData.append('files', file);
+  if (existingBatchId) formData.append('batchId', existingBatchId);
 
   const res = await post('/files/upload', formData);
   const data = await res.json();
@@ -17,11 +18,11 @@ export async function uploadFiles(fileList) {
   return data;
 }
 
-export function renderFileList(uploadResponse) {
+export function renderFileList(uploadResponse, append = false) {
   const container = document.getElementById('fileList');
   if (!container) return;
 
-  container.innerHTML = uploadResponse.files.map(f => `
+  const newHtml = uploadResponse.files.map(f => `
     <div class="file-item" id="file-${f.id}" style="display:flex;align-items:center;justify-content:space-between;padding:12px;border:1px solid #e8e8e8;border-radius:6px;margin-bottom:8px;">
       <div style="flex:1;">
         <div style="font-weight:500;">${f.originalName}</div>
@@ -34,33 +35,45 @@ export function renderFileList(uploadResponse) {
     </div>
   `).join('');
 
+  // 追加或替换模式
+  if (append) {
+    container.innerHTML += newHtml;
+  } else {
+    container.innerHTML = newHtml;
+  }
+
   // 显示整体进度
+  const totalNow = container.querySelectorAll('.file-item').length;
   document.getElementById('overallProgress').textContent =
-    `0/${uploadResponse.files.length} 个文件已就绪`;
+    `0/${totalNow} 个文件已就绪`;
 }
 
 export function subscribeProgress(batchId) {
   if (progressSubscriber) clearInterval(progressSubscriber);
 
-  const eventSource = new EventSource(`http://localhost:5000/api/files/progress?batchId=${batchId}`);
-  eventSource.addEventListener('batch-progress', (e) => {
-    const data = JSON.parse(e.data);
-    document.getElementById('overallProgress').textContent =
-      `${data.readyFiles}/${data.totalFiles} 个文件已就绪`;
+  // 使用轮询替代 EventSource（避免浏览器 CORS 兼容问题）
+  progressSubscriber = setInterval(async () => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/files/progress/poll?batchId=${batchId}`);
+      const data = await res.json();
 
-    updateProgressBar(data.readyFiles, data.totalFiles);
-  });
+      document.getElementById('overallProgress').textContent =
+        `${data.readyFiles}/${data.totalFiles} 个文件已就绪`;
+      updateProgressBar(data.readyFiles, data.totalFiles);
 
-  eventSource.addEventListener('batch-ready', (e) => {
-    const data = JSON.parse(e.data);
-    document.getElementById('overallProgress').textContent = '所有文件就绪';
-    updateProgressBar(data.totalFiles, data.totalFiles);
-    eventSource.close();
-    window.dispatchEvent(new CustomEvent('batch-ready', { detail: data }));
-  });
-
-  eventSource.onerror = () => { eventSource.close(); };
-  progressSubscriber = eventSource;
+      if (data.batchStatus === 'AllReady') {
+        document.getElementById('overallProgress').textContent = '所有文件就绪';
+        updateProgressBar(data.totalFiles, data.totalFiles);
+        // 更新所有文件状态
+        document.querySelectorAll('[id^="status-"]').forEach(el => el.textContent = '已就绪');
+        document.querySelectorAll('[id^="progress-"]').forEach(el => el.style.width = '100%');
+        clearInterval(progressSubscriber);
+        window.dispatchEvent(new CustomEvent('batch-ready', { detail: data }));
+      }
+    } catch (e) {
+      console.error('Poll error:', e);
+    }
+  }, 1000);
 }
 
 function updateProgressBar(ready, total) {
@@ -73,6 +86,13 @@ export async function removeFile(fileId) {
   await del(`/files/${fileId}`);
   const el = document.getElementById(`file-${fileId}`);
   if (el) el.remove();
+  // 重置进度
+  const remaining = document.querySelectorAll('.file-item').length;
+  if (remaining === 0) {
+    document.getElementById('overallProgress').textContent = '';
+    document.getElementById('overallProgressBar').style.width = '0%';
+    document.getElementById('clearAllBtn').style.display = 'none';
+  }
 }
 
 export async function handleClearAll() {
@@ -81,7 +101,11 @@ export async function handleClearAll() {
   const container = document.getElementById('fileList');
   if (container) container.innerHTML = '';
   document.getElementById('overallProgress').textContent = '';
+  document.getElementById('overallProgressBar').style.width = '0%';
+  document.getElementById('clearAllBtn').style.display = 'none';
+  if (progressSubscriber) { clearInterval(progressSubscriber); progressSubscriber = null; }
 }
+window._handleClearAll = handleClearAll;
 
 // ===== US3: 多文件处理策略选择 =====
 let currentStrategy = null;

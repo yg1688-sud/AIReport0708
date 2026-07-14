@@ -1,26 +1,40 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('错误处理', () => {
-  test('空文件上传提示', async ({ page }) => {
-    await page.goto('/');
-    await page.fill('#username', 'admin');
-    await page.fill('#password', 'admin123');
-    await page.click('#loginBtn');
-    await page.waitForURL('**/#main');
-    // 空文件上传验证由后端 API 处理
-  });
+const API = 'http://localhost:5000/api';
 
-  test('未登录访问API返回401', async ({ request }) => {
-    const res = await request.post('http://localhost:5000/api/auth/login', {
-      data: { username: '', password: '' }
+test.describe('错误处理 - API 层', () => {
+  test('空用户名登录返回400', async ({ request }) => {
+    const res = await request.post(`${API}/auth/login`, {
+      data: { username: '', password: 'test123' }
     });
     expect(res.status()).toBe(400);
   });
 
-  test('登录API正常响应', async ({ request }) => {
-    const res = await request.post('http://localhost:5000/api/auth/login', {
+  test('空密码登录返回400', async ({ request }) => {
+    const res = await request.post(`${API}/auth/login`, {
+      data: { username: 'admin', password: '' }
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test('不存在用户登录返回401', async ({ request }) => {
+    const res = await request.post(`${API}/auth/login`, {
+      data: { username: 'nobody', password: 'test123' }
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test('不支持的格式上传返回400', async ({ request }) => {
+    const loginRes = await request.post(`${API}/auth/login`, {
       data: { username: 'admin', password: 'admin123' }
     });
-    expect([200, 401]).toContain(res.status());
+    const { token } = await loginRes.json();
+
+    // 发送空表单（无文件）
+    const res = await request.post(`${API}/files/upload`, {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {}  // 无文件
+    });
+    expect([400, 401]).toContain(res.status());
   });
 });

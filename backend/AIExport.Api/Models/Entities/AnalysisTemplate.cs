@@ -10,6 +10,7 @@ public class AnalysisTemplate
     public string ChartTypes { get; set; } = "[]";   // JSON array
     public string? Filters { get; set; }             // JSON object
     public string ColumnNames { get; set; } = "[]";  // JSON array — 用于列校验
+    public string? CustomRequirements { get; set; }   // 用户自定义需求描述
     public Strategy Strategy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

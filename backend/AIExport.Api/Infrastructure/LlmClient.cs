@@ -8,83 +8,178 @@ namespace AIExport.Api.Infrastructure;
 public class LlmClient
 {
     private readonly HttpClient _http;
-    private readonly string _apiKey;
+    private readonly string _deepseekKey;
+    private readonly string _kimiKey;
     private readonly int _timeoutSeconds;
-    private const string ApiEndpoint = "https://api.deepseek.com/v1/chat/completions";
-    private const string Model = "deepseek-v4-pro";
+
+    private const string DeepSeekEndpoint = "https://api.deepseek.com/v1/chat/completions";
+    private const string KimiEndpoint = "https://api.moonshot.cn/v1/chat/completions";
 
     public LlmClient(HttpClient http, IConfiguration config)
     {
         _http = http;
-        _apiKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY")
-            ?? throw new InvalidOperationException("DEEPSEEK_API_KEY 环境变量未设置");
+        _deepseekKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY") ?? "";
+        _kimiKey = Environment.GetEnvironmentVariable("KIMI_API_KEY") ?? "sk-pw4fgJiqVMSmdZcarUrFHHtebvyiD5P6AUtG7UTB5gdVLbu1";
         _timeoutSeconds = config.GetValue<int>("Chat:LlmTimeoutSeconds", 30);
-        _http.Timeout = TimeSpan.FromSeconds(_timeoutSeconds);
-        _http.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", _apiKey);
     }
 
-    /// <summary>
-    /// 调用 DeepSeek V4 理解用户的自然语言分析需求，返回结构化 JSON
-    /// </summary>
-    public async Task<LlmResponse?> ChatAsync(string userMessage, string[] availableColumns, int attempt = 0)
+    private (string endpoint, string key, string model) ResolveModel(string? model)
     {
-        var systemPrompt = BuildSystemPrompt(availableColumns);
-
-        var body = new
+        return model switch
         {
-            model = Model,
-            messages = new[]
-            {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = userMessage }
-            },
-            temperature = 0.3,
-            max_tokens = 2000,
-            response_format = new { type = "json_object" }
+            "kimi" => (KimiEndpoint, _kimiKey, "moonshot-v1-128k"),
+            _ => (DeepSeekEndpoint, _deepseekKey, "deepseek-v4-pro") // 默认 deepseek
         };
+    }
+
+    public async IAsyncEnumerable<string> ChatStreamAsync(string userMessage, string[] availableColumns,
+        string? model = null, List<(string role, string content)>? history = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var (endpoint, key, modelName) = ResolveModel(model);
+        if (string.IsNullOrEmpty(key)) yield break;
+
+        var systemPrompt = BuildSystemPrompt(availableColumns);
+        var json = BuildRequestBody(modelName, systemPrompt, userMessage, history);
+
+        var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+
+        var response = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+
+        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        while (!reader.EndOfStream)
+        {
+            ct.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(ct);
+            if (string.IsNullOrEmpty(line)) continue;
+            if (!line.StartsWith("data: ")) continue;
+            var data = line[6..];
+            if (data == "[DONE]") yield break;
+
+            using var doc = JsonDocument.Parse(data);
+            var choices = doc.RootElement.GetProperty("choices");
+            if (choices.GetArrayLength() == 0) continue;
+            var delta = choices[0].GetProperty("delta");
+
+            if (delta.TryGetProperty("reasoning_content", out var rc) && rc.ValueKind == JsonValueKind.String)
+            {
+                var rtext = rc.GetString();
+                if (!string.IsNullOrEmpty(rtext)) { yield return $"__REASONING__:{rtext}"; continue; }
+            }
+
+            if (delta.TryGetProperty("content", out var ctJson) && ctJson.ValueKind == JsonValueKind.String)
+            {
+                var text = ctJson.GetString();
+                if (!string.IsNullOrEmpty(text)) yield return text;
+            }
+        }
+    }
+
+    public async Task<LlmResponse?> ChatAsync(string userMessage, string[] availableColumns,
+        string? model = null, List<(string role, string content)>? history = null, int attempt = 0)
+    {
+        var (endpoint, key, modelName) = ResolveModel(model);
+        if (string.IsNullOrEmpty(key)) return null;
+
+        var systemPrompt = BuildSystemPrompt(availableColumns);
+        // 构建消息列表（含历史）
+        var msgList = new List<object> { new { role = "system", content = systemPrompt } };
+        if (history is not null)
+        { foreach (var (role, content) in history) msgList.Add(new { role, content }); }
+        msgList.Add(new { role = "user", content = userMessage });
+
+        var body = new { model = modelName, messages = msgList.ToArray(), temperature = 0.3, max_tokens = 4000, thinking = new { type = "enabled" } };
 
         try
         {
             var json = JsonSerializer.Serialize(body);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var response = await _http.PostAsync(ApiEndpoint, content);
+            var req = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
 
+            var response = await _http.SendAsync(req);
             response.EnsureSuccessStatusCode();
+
             var resultStream = await response.Content.ReadAsStreamAsync();
             using var doc = await JsonDocument.ParseAsync(resultStream);
-            var reply = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+            var message = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
 
-            return JsonSerializer.Deserialize<LlmResponse>(reply!);
+            string? reasoning = null;
+            if (message.TryGetProperty("reasoning_content", out var reasoningEl))
+                reasoning = reasoningEl.GetString();
+
+            var reply = message.GetProperty("content").GetString();
+            var jsonStart = reply!.IndexOf('{');
+            var jsonEnd = reply.LastIndexOf('}');
+            var jsonStr = (jsonStart >= 0 && jsonEnd > jsonStart) ? reply[jsonStart..(jsonEnd + 1)] : reply;
+
+            var result = JsonSerializer.Deserialize<LlmResponse>(jsonStr);
+            if (result is not null && reasoning is not null)
+                result = result with { Reasoning = reasoning };
+            return result;
         }
         catch (Exception ex) when (ex is TaskCanceledException or HttpRequestException)
         {
-            if (attempt < 2) // 重试最多 3 次
-                return await ChatAsync(userMessage, availableColumns, attempt + 1);
-
-            // 超过重试次数，返回 null 触发降级
+            if (attempt < 2) return await ChatAsync(userMessage, availableColumns, model, history, attempt + 1);
             return null;
         }
     }
 
+    /// <summary>快速调用 LLM 生成报告文本</summary>
+    public async Task<string> ChatForReportAsync(string prompt, string[] columns)
+    {
+        var (endpoint, key, modelName) = ResolveModel(null);
+        if (string.IsNullOrEmpty(key)) return "";
+        try
+        {
+            var body = new { model = modelName, messages = new[] { new { role = "user", content = prompt } }, temperature = 0.3, max_tokens = 1000 };
+            var req = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            var resp = await _http.SendAsync(req);
+            resp.EnsureSuccessStatusCode();
+            using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync());
+            return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+        }
+        catch { return ""; }
+    }
+
+    private static string BuildRequestBody(string modelName, string systemPrompt, string userMessage,
+        List<(string role, string content)>? history = null)
+    {
+        var msgList = new List<object> { new { role = "system", content = systemPrompt } };
+
+        // 注入对话历史
+        if (history is not null)
+        {
+            foreach (var (role, content) in history)
+                msgList.Add(new { role, content });
+        }
+
+        // 当前用户消息
+        msgList.Add(new { role = "user", content = userMessage });
+
+        var messages = msgList.ToArray();
+        if (modelName.StartsWith("moonshot"))
+            return JsonSerializer.Serialize(new { model = modelName, messages, temperature = 0.3, max_tokens = 4000, stream = true });
+        else
+            return JsonSerializer.Serialize(new { model = modelName, messages, temperature = 0.3, max_tokens = 4000, thinking = new { type = "enabled" }, stream = true });
+    }
+
     private static string BuildSystemPrompt(string[] availableColumns)
     {
-        var jsonExample = @"{
-          ""dimensions"": [""分析维度列表，如 地区、时间""],
-          ""metrics"": [""分析指标列表，如 销售额、利润""],
-          ""chartTypes"": [""图表类型：bar/line/pie/scatter""],
-          ""followUpQuestion"": ""如果需求不够明确，追问用户的问题；如果明确则留空""
-        }";
-
-        return $"你是一个数据分析助手。用户会上传 Excel 数据并要求进行分析。\n" +
-               $"可用的数据列：{string.Join(", ", availableColumns)}\n\n" +
-               $"请分析用户的意图，返回以下 JSON 格式（不要包含额外文字）：\n" +
-               $"{jsonExample}\n\n" +
-               "规则：\n" +
-               "- 数值型列建议用均值/求和/趋势分析\n" +
-               "- 文本型列建议用频次分布/分类汇总\n" +
-               "- 日期型列建议用时间趋势/同比环比\n" +
-               "- 所有分析必须在可用列范围内";
+        return "你是一个专业的数据分析助手，帮助用户分析 Excel 数据。\n\n" +
+            $"可用数据列：{string.Join(", ", availableColumns)}\n\n" +
+            "请用自然语言与用户对话。重要规则：\n\n" +
+            "1. 当用户给出具体、明确的分析需求时（如包含具体列名、计算方法、公式等），应直接确认并表示理解，不要反复追问。\n" +
+            "2. 用户可以提出自定义计算需求（如去重计数、条件过滤、比率计算等），你应当记录下来并在确认时传递给报告系统。\n" +
+            "3. 只有当用户需求确实模糊时才追问（如只说了\"帮我分析\"而没有指定任何维度或指标）。\n" +
+            "4. 对于用户明确指定的计算公式，视为需求已明确，直接确认并总结。告知用户可输入\"确认生成报告\"来生成报告。\n" +
+            "5. 所有分析必须在可用列范围内，如果用户指定的列名不存在则友好提示。\n\n" +
+            "注意：请直接用自然语言回复，不要输出 JSON 格式代码。当用户需求明确时，回复末尾加上【需求已明确，请输入确认生成报告】。";
     }
 }
 
@@ -92,5 +187,6 @@ public record LlmResponse(
     List<string> Dimensions,
     List<string> Metrics,
     List<string> ChartTypes,
-    string? FollowUpQuestion
+    string? FollowUpQuestion,
+    string? Reasoning = null
 );

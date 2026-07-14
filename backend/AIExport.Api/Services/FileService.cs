@@ -45,6 +45,11 @@ public class FileService
         return new ValidationResult(ResolveFormat(ext), null);
     }
 
+    public async Task<UploadBatch?> GetBatchAsync(Guid batchId)
+    {
+        return await _db.UploadBatches.FindAsync(batchId);
+    }
+
     public async Task<UploadBatch> CreateBatchAsync(Guid userId)
     {
         var batch = new UploadBatch

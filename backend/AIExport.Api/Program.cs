@@ -11,6 +11,10 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// === JSON 序列化配置（camelCase） ===
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);
+
 // === 数据库 ===
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
@@ -83,7 +87,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.EnsureCreated();
+    db.Database.Migrate();
     db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
     db.Database.ExecuteSqlRaw("PRAGMA foreign_keys=ON;");
 }
@@ -107,15 +111,32 @@ using (var scope = app.Services.CreateScope())
 }
 
 // === 中间件管道 (T022) ===
-// === 后台任务消费者 (T064) ===
+// === 后台报告生成消费者 (T064) ===
 var jobQueue = app.Services.GetRequiredService<JobQueue>();
 _ = Task.Run(async () =>
 {
-    await foreach (var job in jobQueue.ReadAllAsync())
+    Console.WriteLine("[JobQueue] Consumer started");
+    try
     {
-        using var scope = app.Services.CreateScope();
-        var reportService = scope.ServiceProvider.GetRequiredService<ReportService>();
-        await reportService.GenerateAsync(job.ReportId);
+        await foreach (var job in jobQueue.ReadAllAsync())
+        {
+            Console.WriteLine($"[JobQueue] Processing job: {job.ReportId}");
+            using var scope = app.Services.CreateScope();
+            var reportService = scope.ServiceProvider.GetRequiredService<ReportService>();
+            try
+            {
+                var result = await reportService.GenerateAsync(job.ReportId);
+                Console.WriteLine($"[JobQueue] Job completed: {job.ReportId}, Status: {result.Status}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[JobQueue] Job failed: {job.ReportId}, Error: {ex.Message}");
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[JobQueue] Consumer crashed: {ex}");
     }
 });
 
@@ -146,6 +167,8 @@ app.Use(async (context, next) =>
 // === 端点注册 ===
 app.MapAuthEndpoints();
 app.MapFileEndpoints();
+app.MapChatStreamEndpoint(); // 流式端点独立注册，避开 auth group 中间件干扰
+app.MapFileSseEndpoint();
 app.MapTemplateEndpoints();
 app.MapChatEndpoints();
 app.MapReportEndpoints();

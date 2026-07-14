@@ -4,6 +4,7 @@ import { getCurrentBatchId, getCurrentStrategy } from './upload.js';
 import { getSelectedTemplateId } from './template.js';
 
 let currentSessionId = null;
+window._currentSessionId = null;
 
 export function getCurrentSessionId() { return currentSessionId; }
 
@@ -12,35 +13,136 @@ export async function startChat(batchId, strategy) {
   const res = await post('/chat/start', { batchId, strategy, templateId });
   const data = await res.json();
   currentSessionId = data.sessionId;
+  window._currentSessionId = currentSessionId;
 
   if (data.mode === 'template') {
-    // 模版模式：不需要聊天，显示"立即生成报告"按钮
-    document.getElementById('chatArea').style.display = 'none';
-    document.getElementById('confirmBtn').style.display = 'none';
-    document.getElementById('generateBtn').style.display = 'inline-block';
+    const cp = document.getElementById('centerPanel');
+    if (cp) cp.style.display = 'none';
+    const cb = document.getElementById('confirmBtn');
+    if (cb) cb.style.display = 'none';
+    const gb = document.getElementById('generateBtn');
+    if (gb) gb.style.display = 'block';
   } else {
-    // 对话模式
-    document.getElementById('chatArea').style.display = 'block';
-    document.getElementById('confirmBtn').style.display = 'inline-block';
-    document.getElementById('generateBtn').style.display = 'none';
+    const cp = document.getElementById('centerPanel');
+    if (cp) cp.style.display = 'block';
+    const cb = document.getElementById('confirmBtn');
+    if (cb) cb.style.display = 'inline-block';
+    const gb = document.getElementById('generateBtn');
+    if (gb) gb.style.display = 'none';
     renderMessage({ sender: 'system', content: data.firstMessage });
   }
-
   return data;
 }
 
+let abortController = null;
+export function isThinking() { return abortController !== null; }
+export function stopThinking() {
+  if (abortController) { abortController.abort(); abortController = null; }
+  updateThinkingUI(false);
+}
+
+function updateThinkingUI(thinking) {
+  const input = document.getElementById('chatInput');
+  const confirmBtn = document.getElementById('confirmBtn');
+  if (input) { input.disabled = thinking; input.placeholder = thinking ? ' 模型思考中，请稍候...' : '输入分析需求...'; }
+  if (confirmBtn) {
+    confirmBtn.textContent = thinking ? '停止思考' : '确认需求';
+    confirmBtn.style.background = thinking ? '#ff4d4f' : '#1677ff';
+    confirmBtn.onclick = thinking ? stopThinking : (() => window._handleConfirm?.());
+  }
+}
+
 export async function sendMessage(content) {
-  const res = await post('/chat/message', { sessionId: currentSessionId, content });
-  const data = await res.json();
-  renderMessage({ sender: 'system', content: data.content });
+  if (abortController) return; // 正在思考中，忽略重复发送
+  const token = localStorage.getItem('token');
+  abortController = new AbortController();
+  updateThinkingUI(true);
+
+  const msgId = 'stream-' + Date.now();
+  const container = document.getElementById('chatMessages');
+  const streamDiv = document.createElement('div');
+  streamDiv.id = msgId;
+  streamDiv.style.cssText = 'margin-bottom:12px;display:flex;justify-content:flex-start;';
+  streamDiv.innerHTML = '<div style="max-width:85%;padding:10px 14px;border-radius:8px;font-size:14px;background:#f0f0f0;color:#333;"><div class="reasoning-area" style="display:none;margin-bottom:8px;font-size:12px;color:#888;"><details open><summary style="cursor:pointer;"> 思考中...</summary><div class="reasoning-content" style="margin-top:4px;padding:8px;background:#fffbe6;border-radius:4px;border-left:3px solid #faad14;white-space:pre-wrap;"></div></details></div><span class="stream-text"></span></div>';
+  container.appendChild(streamDiv);
   scrollToBottom();
 
-  // 检测确认回复 → 跳转报告等待页
-  if (data.content?.includes('正在生成报告')) {
-    const taskIdMatch = data.content.match(/任务ID: ([a-f0-9-]+)/i);
-    if (taskIdMatch) {
-      window.dispatchEvent(new CustomEvent('report-confirmed', { detail: { taskId: taskIdMatch[1] } }));
+  let fullContent = '';
+  let reasoning = '';
+
+  try {
+    const model = document.getElementById('modelSelect')?.value || null;
+    const res = await fetch('http://localhost:5000/api/chat/message/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ sessionId: currentSessionId, content, model }),
+      signal: abortController.signal
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    let currentEvent = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim(); continue; }
+        if (!line.startsWith('data: ')) continue;
+
+        const div = document.getElementById(msgId);
+        if (!div) continue;
+        const data = JSON.parse(line.slice(6));
+
+        if (currentEvent === 'reasoning') {
+          const r = data.text || '';
+          if (r) {
+            const reasonArea = div.querySelector('.reasoning-area');
+            const reasonContent = div.querySelector('.reasoning-content');
+            if (reasonArea) reasonArea.style.display = 'block';
+            if (reasonContent) reasonContent.textContent += r;
+          }
+        } else if (currentEvent === 'token' || (data.text && !data.text.startsWith?.('__REASONING__:'))) {
+          if (!data.text.startsWith?.('<!--reasoning:')) {
+            fullContent += (data.text || '');
+            const textEl = div.querySelector('.stream-text');
+            if (textEl) textEl.textContent = fullContent;
+          }
+        }
+
+        if (currentEvent === 'done') {
+          const reasonSummary = div.querySelector('.reasoning-area summary');
+          if (reasonSummary) reasonSummary.textContent = ' 思考过程';
+        }
+        if (data.reasoning) {
+          const reasonArea = div.querySelector('.reasoning-area');
+          if (reasonArea) reasonArea.style.display = 'block';
+        }
+      }
+      scrollToBottom();
     }
+    // 流正常结束
+    abortController = null;
+    updateThinkingUI(false);
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      document.getElementById(msgId).querySelector('.stream-text').textContent = fullContent + '\n\n[已停止思考]';
+    } else {
+      document.getElementById(msgId).querySelector('.stream-text').textContent = '请求失败: ' + e.message;
+    }
+  } finally {
+    abortController = null;
+    updateThinkingUI(false);
+  }
+
+  if (fullContent.includes('正在生成报告')) {
+    const m = fullContent.match(/任务ID: ([a-f0-9-]+)/i);
+    if (m) window.dispatchEvent(new CustomEvent('report-confirmed', { detail: { taskId: m[1] } }));
   }
 }
 
@@ -48,11 +150,16 @@ export function renderMessage(msg) {
   const container = document.getElementById('chatMessages');
   if (!container) return;
   const isUser = msg.sender === 'user';
+  const reasoningHtml = msg.reasoning
+    ? `<details style="margin-top:6px;font-size:12px;color:#888;"><summary style="cursor:pointer;color:#1677ff;"> 思考过程</summary><div style="margin-top:4px;padding:8px;background:#fffbe6;border-radius:4px;border-left:3px solid #faad14;white-space:pre-wrap;">${msg.reasoning}</div></details>`
+    : '';
+
   container.innerHTML += `
     <div style="margin-bottom:12px;display:flex;justify-content:${isUser ? 'flex-end' : 'flex-start'};">
-      <div style="max-width:70%;padding:10px 14px;border-radius:8px;font-size:14px;line-height:1.6;
+      <div style="max-width:${isUser ? '70%' : '85%'};padding:10px 14px;border-radius:8px;font-size:14px;line-height:1.6;
         ${isUser ? 'background:#1677ff;color:#fff;' : 'background:#f0f0f0;color:#333;'}">
         ${msg.content.replace(/\n/g, '<br>')}
+        ${reasoningHtml}
       </div>
     </div>`;
 }
@@ -70,20 +177,14 @@ export async function handleConfirm() {
     await sendMessage(content);
     messageInput.value = '';
   } else {
-    // 直接点击确认按钮
     const res = await post('/chat/confirm', { sessionId: currentSessionId });
     const data = await res.json();
     window.dispatchEvent(new CustomEvent('report-confirmed', { detail: { taskId: data.taskId } }));
   }
 }
 
-// ===== 会话超时处理 (T058a) =====
 export function handleTimeout() {
-  alert('会话已超时（30分钟），请重新上传文件开始。');
-  window.location.hash = '#main';
-  window.location.reload();
+  document.getElementById('sessionTimeoutMsg').style.display = 'block';
+  document.getElementById('sessionTimeoutMsg').textContent = '会话已超时（30分钟），请刷新页面重新上传。';
 }
-
-// 在 api.js 中拦截 410 状态码来触发超时通知
-// 监听全局 410 事件
 window.addEventListener('session-timeout', handleTimeout);
