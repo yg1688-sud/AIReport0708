@@ -280,17 +280,19 @@ public class ChatService
             columns.AddRange(JsonSerializer.Deserialize<List<string>>(f.ColumnHeaders) ?? new());
         }
 
-        var requirement = new AnalysisRequirement
+        // 复用已有需求记录（报告被删除后重新确认时，避免撞 SessionId 唯一约束）
+        var requirement = await _db.AnalysisRequirements.FirstOrDefaultAsync(r => r.SessionId == sessionId);
+        if (requirement is null)
         {
-            SessionId = sessionId,
-            Dimensions = JsonSerializer.Serialize(dimensions.Count > 0 ? dimensions.ToArray() : new[] { "未指定维度" }),
-            Metrics = JsonSerializer.Serialize(metrics.Count > 0 ? metrics.ToArray() : new[] { "未指定指标" }),
-            ChartTypes = JsonSerializer.Serialize(chartTypes.Count > 0 ? chartTypes.ToArray() : new[] { "bar" }),
-            CustomRequirements = fullRequest, // 保存用户完整需求描述
-            ConfirmedAt = DateTime.UtcNow
-        };
+            requirement = new AnalysisRequirement { SessionId = sessionId };
+            _db.AnalysisRequirements.Add(requirement);
+        }
+        requirement.Dimensions = JsonSerializer.Serialize(dimensions.Count > 0 ? dimensions.ToArray() : new[] { "未指定维度" });
+        requirement.Metrics = JsonSerializer.Serialize(metrics.Count > 0 ? metrics.ToArray() : new[] { "未指定指标" });
+        requirement.ChartTypes = JsonSerializer.Serialize(chartTypes.Count > 0 ? chartTypes.ToArray() : new[] { "bar" });
+        requirement.CustomRequirements = fullRequest; // 保存用户完整需求描述
+        requirement.ConfirmedAt = DateTime.UtcNow;
 
-        _db.AnalysisRequirements.Add(requirement);
         session.SessionStatus = SessionStatus.Confirmed;
         session.ConfirmedAt = DateTime.UtcNow;
 

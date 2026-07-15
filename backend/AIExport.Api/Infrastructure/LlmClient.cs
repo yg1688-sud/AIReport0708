@@ -19,7 +19,7 @@ public class LlmClient
     {
         _http = http;
         _deepseekKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY") ?? "";
-        _kimiKey = Environment.GetEnvironmentVariable("KIMI_API_KEY") ?? "sk-pw4fgJiqVMSmdZcarUrFHHtebvyiD5P6AUtG7UTB5gdVLbu1";
+        _kimiKey = Environment.GetEnvironmentVariable("KIMI_API_KEY") ?? "";
         _timeoutSeconds = config.GetValue<int>("Chat:LlmTimeoutSeconds", 30);
     }
 
@@ -37,7 +37,12 @@ public class LlmClient
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         var (endpoint, key, modelName) = ResolveModel(model);
-        if (string.IsNullOrEmpty(key)) yield break;
+        if (string.IsNullOrEmpty(key))
+        {
+            var envName = model == "kimi" ? "KIMI_API_KEY" : "DEEPSEEK_API_KEY";
+            yield return $"⚠️ 服务端未配置 {envName} 环境变量，无法调用 AI 模型。请配置后重启服务。";
+            yield break;
+        }
 
         var systemPrompt = BuildSystemPrompt(availableColumns);
         var json = BuildRequestBody(modelName, systemPrompt, userMessage, history);

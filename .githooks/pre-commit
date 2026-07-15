@@ -1,0 +1,28 @@
+#!/bin/sh
+# pre-commit 密钥扫描钩子 — CLAUDE.md 安全红线强制项
+# 1) 拦截禁止入库的文件类型  2) 扫描暂存 diff 新增行中的密钥模式
+# 误报时可用 git commit --no-verify 跳过（需自行确认 diff 中无敏感值）
+
+# === 1. 禁止提交的文件类型（.gitignore 强制项） ===
+blocked=$(git diff --cached --name-only --diff-filter=ACR \
+  | grep -iE '(^|/)\.env$|\.pem$|\.key$|\.p12$|\.pfx$|(^|/)credentials[^/]*\.json$|(^|/)secrets[^/]*\.ya?ml$' \
+  | grep -v '\.env\.example$')
+if [ -n "$blocked" ]; then
+  echo "" >&2
+  echo "[X] 提交被拒绝：以下文件类型禁止入库（安全红线）：" >&2
+  echo "$blocked" | sed 's/^/    /' >&2
+  exit 1
+fi
+
+# === 2. 扫描暂存 diff 新增行中的密钥模式 ===
+patterns='sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16,}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+hits=$(git diff --cached -U0 | grep -E '^\+[^+]' | grep -nE "$patterns")
+if [ -n "$hits" ]; then
+  echo "" >&2
+  echo "[X] 提交被拒绝：暂存内容中检测到疑似密钥（安全红线）：" >&2
+  echo "$hits" | head -10 | sed 's/^/    /' >&2
+  echo "    请移除敏感值，改用环境变量（如 Environment.GetEnvironmentVariable）。" >&2
+  exit 1
+fi
+
+exit 0

@@ -204,17 +204,28 @@ public class ReportService
         }
 
         // === 5. 执行计算 ===
-        if (groupIdx < 0 && dedupIdx >= 0 && (requirements.Contains("按") || requirements.Contains("各") || requirements.Contains("每个")))
-        {
-            // 检测到分组意图但未找到"分组"关键词 → 提示用户重新确认
-            results.Add("未在需求中找到明确的分组关键词（请确保需求描述中包含\"分组\"一词），无法按维度分组。请重新确认需求。");
-        }
-        else if (groupIdx >= 0 && dedupIdx >= 0)
+        // 从需求文本中提取语义化的指标名（如"订单总数"、"关联率"），排除非指标词
+        var nonMetrics = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "分组维度", "分组依据", "筛选条件", "计算指标", "指标计算", "分析目标", "聚合方式", "输出形式", "输出格式", "分析需求确认", "指标", "计算方式", "示例结果", "分析维度", "输出指标", "分析范围", "输出内容" };
+        var metricNames = new List<string>();
+        // 排除小节标题、列名本身（分组/去重/过滤列）和含 "=" 的过滤条件
+        bool IsMetric(string n) => !nonMetrics.Contains(n) && n != groupCol && n != dedupCol && n != filterCol && !n.Contains('=') && !metricNames.Contains(n);
+        // 优先从列表项提取（"- **订单总数**：..." 或 "2. **订单总数** – ..."），这是 LLM 总结输出指标的典型格式；
+        // 小节标题（如 "**指标计算**："）为顶格粗体、无列表符号，天然不会被匹配
+        foreach (Match m in Regex.Matches(requirements, @"(?m)^\s*(?:[-*•]|\d+[.、)])\s*\*\*(.+?)\*\*"))
+        { var n = m.Groups[1].Value.Trim(); if (IsMetric(n)) metricNames.Add(n); }
+        if (metricNames.Count == 0)
+            foreach (Match m in Regex.Matches(requirements, @"\*\*(.+?)\*\*"))
+            { var n = m.Groups[1].Value.Trim(); if (IsMetric(n)) metricNames.Add(n); }
+        if (metricNames.Count == 0)
+            foreach (Match m in Regex.Matches(requirements, @"\d+\.\s*(\S+?)(?:[=＝：:])"))
+            { var n = m.Groups[1].Value.Trim(); if (IsMetric(n)) metricNames.Add(n); }
+
+        if (groupIdx >= 0 && dedupIdx >= 0)
         {
             // 分组计算
             var groups = allRows.Where(r => r.Count > groupIdx && !string.IsNullOrWhiteSpace(r[groupIdx]))
                 .GroupBy(r => r[groupIdx].Trim()).OrderBy(g => g.Key);
-            results.Add($"分组列: {groupCol} | 去重列: {dedupCol} | 过滤: {filterCol}={filterVal}");
+            results.Add($"分组列: {groupCol} | 计算列: {dedupCol} | 过滤: {filterCol}={filterVal} | 指标: {string.Join(",", metricNames)}");
             results.Add("---");
             foreach (var g in groups)
             {
@@ -229,23 +240,33 @@ public class ReportService
                         .Select(r => r[dedupIdx].Trim()).Distinct().Count();
                 }
                 var ratio = totalDedup > 0 ? (double)filteredDedup / totalDedup * 100 : 0;
-                results.Add($"{g.Key}: 订单总数={totalDedup}, 关联任务品订单数={filteredDedup}, 关联率={ratio:F2}%");
+                var labels = metricNames.Count >= 3
+                    ? $"{metricNames[0]}={totalDedup}, {metricNames[1]}={filteredDedup}, {metricNames[2]}={ratio:F2}%"
+                    : $"{dedupCol}去重={totalDedup}, 过滤{filterCol}={filterVal}后去重={filteredDedup}, 比率={ratio:F2}%";
+                results.Add($"{g.Key}: {labels}");
             }
         }
         else if (dedupIdx >= 0)
         {
-            // 无分组，全局计算
+            // 无分组，全局计算 → 合并为单行多列格式
             var totalDedup = allRows.Where(r => r.Count > dedupIdx && !string.IsNullOrWhiteSpace(r[dedupIdx]))
                 .Select(r => r[dedupIdx].Trim()).Distinct().Count();
-            results.Add($"{dedupCol}去重计数: {totalDedup}");
+            var parts = new List<string>();
+            var label1 = metricNames.Count > 0 ? metricNames[0] : $"{dedupCol}去重计数";
+            parts.Add($"{label1}={totalDedup}");
             if (filterIdx >= 0 && filterVal != null)
             {
                 var filtered = allRows.Where(r => r.Count > filterIdx && r[filterIdx].Trim().Equals(filterVal, StringComparison.OrdinalIgnoreCase)).ToList();
                 var fcnt = filtered.Where(r => r.Count > dedupIdx && !string.IsNullOrWhiteSpace(r[dedupIdx]))
                     .Select(r => r[dedupIdx].Trim()).Distinct().Count();
-                results.Add($"过滤{filterCol}={filterVal}后{dedupCol}去重计数: {fcnt}");
-                if (totalDedup > 0) results.Add($"比率: {(double)fcnt / totalDedup * 100:F2}%");
+                var label2 = metricNames.Count > 1 ? metricNames[1] : $"过滤{filterCol}={filterVal}后{dedupCol}去重计数";
+                parts.Add($"{label2}={fcnt}");
+                if (totalDedup > 0) {
+                    var label3 = metricNames.Count > 2 ? metricNames[2] : "比率";
+                    parts.Add($"{label3}={(double)fcnt / totalDedup * 100:F2}%");
+                }
             }
+            results.Add(string.Join(", ", parts));
         }
         return results;
     }
