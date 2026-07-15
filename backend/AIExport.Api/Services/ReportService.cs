@@ -161,13 +161,15 @@ public class ReportService
         // === 1. 找出需求文本中出现的所有数据列 ===
         var mentionedCols = colIndex.Keys.Where(c => requirements.Contains(c)).ToList();
 
-        // === 2. 找分组列：只匹配"分组"关键词附近的列，不降级 ===
+        // === 2. 找分组列：只匹配"分组"关键词附近的列，不降级；多个候选时取距离最近的 ===
         string? groupCol = null; int groupIdx = -1;
         var groupKwPos = requirements.IndexOf("分组");
         if (groupKwPos >= 0) {
+            var bestDist = 15;
             foreach (var c in mentionedCols) {
                 var pos = requirements.IndexOf(c);
-                if (Math.Abs(pos - groupKwPos) < 15) { groupCol = c; groupIdx = colIndex[c]; break; }
+                var dist = Math.Abs(pos - groupKwPos);
+                if (dist < bestDist) { bestDist = dist; groupCol = c; groupIdx = colIndex[c]; }
             }
         }
 
@@ -267,6 +269,82 @@ public class ReportService
                 }
             }
             results.Add(string.Join(", ", parts));
+        }
+        else if (groupIdx >= 0)
+        {
+            // === 求和型计算（未检测到去重需求时的兼容分支） ===
+            // 6a. 值组：列表项中枚举的数值（如 ERPID 组），同一行多个值合并为一组（销量求和）
+            var valueGroups = new List<List<string>>();
+            foreach (Match lm in Regex.Matches(requirements, @"(?m)^\s*(?:[-*•]|\d+[.、)])\s*(.+)$"))
+            {
+                var nums = Regex.Matches(lm.Groups[1].Value, @"\d{4,}").Select(x => x.Value).Distinct().ToList();
+                if (nums.Count > 0) valueGroups.Add(nums);
+            }
+            // 6b. 透视列：用实际数据判定枚举值属于哪一列（命中最多的列），不依赖文本表述
+            string? pivotCol = null; int pivotIdx = -1;
+            if (valueGroups.Count > 0)
+            {
+                var flat = valueGroups.SelectMany(v => v).ToHashSet();
+                var bestHits = 0;
+                foreach (var c in mentionedCols)
+                {
+                    if (c == groupCol) continue;
+                    var idx = colIndex[c];
+                    var colVals = allRows.Where(r => r.Count > idx).Select(r => r[idx].Trim()).ToHashSet();
+                    var hits = flat.Count(v => colVals.Contains(v));
+                    if (hits > bestHits) { bestHits = hits; pivotCol = c; pivotIdx = idx; }
+                }
+            }
+            // 6c. 求和列：求和关键词附近提到的列
+            string? sumCol = null; int sumIdx = -1;
+            var sumKws = new[] { "求和", "销量", "合计", "汇总", "总和" };
+            foreach (var c in mentionedCols)
+            {
+                if (c == groupCol || c == pivotCol) continue;
+                foreach (Match cm in Regex.Matches(requirements, Regex.Escape(c)))
+                {
+                    var s = Math.Max(0, cm.Index - 15);
+                    var near = requirements.Substring(s, Math.Min(requirements.Length - s, c.Length + 30));
+                    if (sumKws.Any(k => near.Contains(k))) { sumCol = c; sumIdx = colIndex[c]; break; }
+                }
+                if (sumIdx >= 0) break;
+            }
+
+            if (sumIdx >= 0)
+            {
+                var groups = allRows.Where(r => r.Count > groupIdx && !string.IsNullOrWhiteSpace(r[groupIdx]))
+                    .GroupBy(r => r[groupIdx].Trim()).OrderBy(g => g.Key);
+                if (pivotIdx >= 0)
+                {
+                    // 长表输出：分组 × 值组 × 求和
+                    results.Add($"分组列: {groupCol} | 求和列: {sumCol} | 透视列: {pivotCol} | 值组: {string.Join(";", valueGroups.Select(v => string.Join("+", v)))}");
+                    results.Add("---");
+                    foreach (var g in groups)
+                        foreach (var vg in valueGroups)
+                        {
+                            var set = vg.ToHashSet();
+                            var sum = g.Where(r => r.Count > pivotIdx && set.Contains(r[pivotIdx].Trim()) && r.Count > sumIdx)
+                                .Sum(r => double.TryParse(r[sumIdx], out var d) ? d : 0);
+                            results.Add($"{g.Key}: {pivotCol}={string.Join("+", vg)}, {sumCol}={sum:0.##}");
+                        }
+                }
+                else
+                {
+                    // 无值组：按分组列直接求和
+                    results.Add($"分组列: {groupCol} | 求和列: {sumCol}");
+                    results.Add("---");
+                    foreach (var g in groups)
+                    {
+                        var sum = g.Where(r => r.Count > sumIdx).Sum(r => double.TryParse(r[sumIdx], out var d) ? d : 0);
+                        results.Add($"{g.Key}: {sumCol}={sum:0.##}");
+                    }
+                }
+            }
+            else
+            {
+                // 避免静默空结果：明确告知未识别出计算方式
+                results.Add($"已识别分组列「{groupCol}」，但未能识别计算指标（去重计数或求和）。请在对话中更明确地描述计算方式（如\"对XX列去重计数\"或\"对XX列求和\"）后重新确认。");
+            }
         }
         return results;
     }
