@@ -25,6 +25,26 @@ public class PdfGenerator
                     col.Item().AlignCenter().Text($"生成时间：{data.GeneratedAt:yyyy-MM-dd HH:mm}").FontSize(10);
                     col.Item().PaddingVertical(10);
 
+                    // 汇总指标（表格上方展示）
+                    if (data.SummaryMetrics?.Count > 0)
+                    {
+                        col.Item().Text("汇总指标").FontSize(14).Bold();
+                        col.Item().PaddingVertical(4);
+                        col.Item().Table(tbl =>
+                        {
+                            tbl.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
+                            foreach (var m in data.SummaryMetrics)
+                            {
+                                var eq = m.IndexOf('=');
+                                var label = eq > 0 ? m[..eq] : m;
+                                var value = eq > 0 ? m[(eq + 1)..] : "";
+                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(label).Bold();
+                                tbl.Cell().Border(1).Padding(4).Text(value);
+                            }
+                        });
+                        col.Item().PaddingVertical(8);
+                    }
+
                     // 计算结果表格 — 从数据中提取实际列名
                     // 从 meta 行 "分组列: 片区 | ..." 提取实际分组列名作为首列表头
                     var metaLine = data.ComputedResults?.FirstOrDefault(r => r.StartsWith("分组列:"));
@@ -104,7 +124,8 @@ public class PdfGenerator
 public record ReportData(
     string Title, DateTime GeneratedAt, OverviewData Overview, List<StatisticRow> Statistics,
     List<string> ChartTypes, List<CrossRow> CrossAnalysis, string AnalysisText = "",
-    List<string>? ComputedResults = null, string? CustomRequirements = null
+    List<string>? ComputedResults = null, string? CustomRequirements = null,
+    List<string>? SummaryMetrics = null
 );
 public record OverviewData(int RowCount, int ColumnCount, double MissingRate, string FileName);
 public record StatisticRow(string ColumnName, double Mean, double Median, double Min, double Max, double StdDev);

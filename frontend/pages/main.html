@@ -51,7 +51,7 @@
       </div>
 
       <!-- 中：问答区域 -->
-      <div id="centerPanel" style="display:flex;flex-direction:column;overflow:hidden;height:100%;position:relative;">
+      <div id="centerPanel" style="display:flex;flex-direction:column;height:100%;position:relative;">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
           <h4>需求确认</h4>
           <select id="modelSelect" style="padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;font-size:12px;">
@@ -204,6 +204,7 @@ async function enterChatMode() {
   const strategy = getCurrentStrategy() || 'merge';
   const result = await startChat(batchId, strategy);
   document.getElementById('sessionInfo').textContent = result.mode === 'template' ? '模版模式' : '对话模式';
+  fixLayout();
 }
 
 // === 聊天输入（Enter 发送，Shift+Enter 换行） ===

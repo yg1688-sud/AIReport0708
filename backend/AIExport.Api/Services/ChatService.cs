@@ -238,19 +238,24 @@ public class ChatService
         var fullRequest = systemConfirmMsg ?? string.Join("\n", userMessages);
         List<string> dimensions, metrics, chartTypes;
 
+        // 收集列名
+        var cols = new List<string>();
+        var readyFiles = session.Batch?.Files?.Where(f => f.ParseStatus == ParseStatus.Ready) ?? Array.Empty<UploadedFile>();
+        foreach (var f in readyFiles)
+        { if (f.ColumnHeaders is not null) cols.AddRange(JsonSerializer.Deserialize<List<string>>(f.ColumnHeaders) ?? new()); }
+
         // 尝试用 LLM 解析对话提取结构化需求
+        LlmResponse? parseResult = null;
         if (_llm is not null)
         {
+            var colsList = string.Join("、", cols.Distinct());
             var parsePrompt = $"用户与数据分析助手的完整对话如下：\n{fullRequest}\n\n" +
+                $"可用数据列：{colsList}\n\n" +
                 "请从对话中提取用户最终确认的分析需求，返回JSON（不要包含其他文字）：\n" +
-                "{\"dimensions\":[\"分析维度\"],\"metrics\":[\"分析指标\"],\"chartTypes\":[\"bar/line/pie\"]}\n\n" +
-                "规则：dimensions是分组依据（如地区、时间），metrics是计算指标（如销售额、数量），chartTypes是图表类型。如果对话中没有明确，请根据上下文合理推断。";
+                "{\"dimensions\":[\"分析维度\"],\"metrics\":[\"分析指标\"],\"chartTypes\":[\"bar/line/pie\"],\"groupByColumn\":\"分组列名或null\",\"aggregateColumn\":\"聚合列名或null\",\"aggregateType\":\"sum或dedup或null\",\"filterColumn\":\"筛选列名或null\",\"filterValue\":\"筛选值或null\"}\n\n" +
+                "规则：dimensions是分组依据（如地区、时间），metrics是计算指标（如销售额、数量），chartTypes是图表类型。groupByColumn是分组列名（必须从可用数据列中选），aggregateColumn是聚合目标列名（必须从可用数据列中选），aggregateType是聚合方式（求和填sum、去重计数填dedup），filterColumn和filterValue是筛选条件（如筛选商品ERPID=2520941的记录时filterColumn填\"商品ERPID\"、filterValue填\"2520941\"）。如果对话中没有明确对应项，填null。";
 
-            var cols = new List<string>();
-            foreach (var f in session.Batch?.Files?.Where(f => f.ParseStatus == ParseStatus.Ready) ?? Array.Empty<UploadedFile>())
-            { if (f.ColumnHeaders is not null) cols.AddRange(JsonSerializer.Deserialize<List<string>>(f.ColumnHeaders) ?? new()); }
-
-            var parseResult = await _llm.ChatAsync(parsePrompt, cols.Distinct().ToArray());
+            parseResult = await _llm.ChatAsync(parsePrompt, cols.Distinct().ToArray());
             if (parseResult is not null)
             {
                 dimensions = parseResult.Dimensions ?? new();
@@ -271,15 +276,6 @@ public class ChatService
             chartTypes = ExtractKeywords(fullRequest, new[] { "柱状图", "折线图", "饼图", "趋势图" });
         }
 
-        // 收集列名
-        var columns = new List<string>();
-        var readyFiles = session.Batch?.Files?.Where(f => f.ParseStatus == ParseStatus.Ready) ?? Array.Empty<UploadedFile>();
-        foreach (var f in readyFiles)
-        {
-            if (f.ColumnHeaders is null) continue;
-            columns.AddRange(JsonSerializer.Deserialize<List<string>>(f.ColumnHeaders) ?? new());
-        }
-
         // 复用已有需求记录（报告被删除后重新确认时，避免撞 SessionId 唯一约束）
         var requirement = await _db.AnalysisRequirements.FirstOrDefaultAsync(r => r.SessionId == sessionId);
         if (requirement is null)
@@ -291,6 +287,15 @@ public class ChatService
         requirement.Metrics = JsonSerializer.Serialize(metrics.Count > 0 ? metrics.ToArray() : new[] { "未指定指标" });
         requirement.ChartTypes = JsonSerializer.Serialize(chartTypes.Count > 0 ? chartTypes.ToArray() : new[] { "bar" });
         requirement.CustomRequirements = fullRequest; // 保存用户完整需求描述
+        // 保存 LLM 提取的计算参数（JSON），供 ComputeCustomRequirements 直接使用
+        if (parseResult is not null && (parseResult.GroupByColumn is not null || parseResult.AggregateColumn is not null))
+            requirement.ComputationParams = JsonSerializer.Serialize(new {
+                groupByColumn = parseResult.GroupByColumn,
+                aggregateColumn = parseResult.AggregateColumn,
+                aggregateType = parseResult.AggregateType,
+                filterColumn = parseResult.FilterColumn,
+                filterValue = parseResult.FilterValue
+            });
         requirement.ConfirmedAt = DateTime.UtcNow;
 
         session.SessionStatus = SessionStatus.Confirmed;

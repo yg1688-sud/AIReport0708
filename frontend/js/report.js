@@ -55,6 +55,7 @@ export function renderReport(report) {
 
   container.innerHTML = `
     ${chapters.customRequirements ? '<div class="card"><h2>确认的分析需求</h2><p style="white-space:pre-wrap;color:#666;">' + chapters.customRequirements + '</p></div>' : ''}
+    ${chapters.summaryMetrics?.length ? '<div class="card"><h2>汇总指标</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><tbody>' + chapters.summaryMetrics.map(m => { const i = m.indexOf('='); return '<tr><td style="padding:8px 16px;"><strong>' + m.substring(0,i) + '</strong></td><td style="padding:8px 16px;">' + m.substring(i+1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : ''}
     ${chapters.computedResults?.length ? (() => {
       // 从 meta 行 "分组列: 片区 | ..." 提取实际分组列名作为首列表头
       const metaLine = chapters.computedResults.find(r => r.startsWith('分组列:'));
@@ -110,7 +111,7 @@ export function renderReport(report) {
           tableRows.push(vals);
         }
       });
-      window._reportTableData = { headers, rows: tableRows, title: report.originalFileName || '分析报告' };
+      window._reportTableData = { headers, rows: tableRows, title: report.originalFileName || '分析报告', summaryMetrics: chapters.summaryMetrics };
 
       return '<div class="card"><h2>计算结果</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + allRows.map(r => {
         const ci = r.indexOf(':');
@@ -209,8 +210,16 @@ export function exportExcel() {
     return;
   }
 
-  // 构建 SheetJS 工作表：第一行为表头
+  // 构建 SheetJS 工作表：第一行为表头，末尾追加汇总指标
   const sheetData = [data.headers, ...data.rows];
+  if (data.summaryMetrics?.length) {
+    sheetData.push([]); // 空行分隔
+    sheetData.push(['汇总指标', '']);
+    data.summaryMetrics.forEach(m => {
+      const i = m.indexOf('=');
+      sheetData.push([i > 0 ? m.substring(0, i) : m, i > 0 ? m.substring(i + 1) : '']);
+    });
+  }
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
   // 自动列宽

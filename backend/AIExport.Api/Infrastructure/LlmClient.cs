@@ -98,7 +98,7 @@ public class LlmClient
         { foreach (var (role, content) in history) msgList.Add(new { role, content }); }
         msgList.Add(new { role = "user", content = userMessage });
 
-        var body = new { model = modelName, messages = msgList.ToArray(), temperature = 0.3, max_tokens = 4000, thinking = new { type = "enabled" } };
+        var body = new { model = modelName, messages = msgList.ToArray(), temperature = 0.1, max_tokens = 4000, thinking = new { type = "enabled" } };
 
         try
         {
@@ -151,9 +151,9 @@ public class LlmClient
 
         var messages = msgList.ToArray();
         if (modelName.StartsWith("moonshot"))
-            return JsonSerializer.Serialize(new { model = modelName, messages, temperature = 0.3, max_tokens = 4000, stream = true });
+            return JsonSerializer.Serialize(new { model = modelName, messages, temperature = 0.1, max_tokens = 4000, stream = true });
         else
-            return JsonSerializer.Serialize(new { model = modelName, messages, temperature = 0.3, max_tokens = 4000, thinking = new { type = "enabled" }, stream = true });
+            return JsonSerializer.Serialize(new { model = modelName, messages, temperature = 0.1, max_tokens = 4000, thinking = new { type = "enabled" }, stream = true });
     }
 
     private static string BuildSystemPrompt(string[] availableColumns)
@@ -166,7 +166,8 @@ public class LlmClient
             "3. 只有当用户需求确实模糊时才追问（如只说了\"帮我分析\"而没有指定任何维度或指标）。\n" +
             "4. 对于用户明确指定的计算公式，视为需求已明确，直接确认并总结。告知用户可输入\"确认生成报告\"来生成报告。\n" +
             "5. 所有分析必须在可用列范围内，如果用户指定的列名不存在则友好提示。\n" +
-            "6. 回复中严禁使用 Markdown 表格语法（即用 | 分隔的表格），也不要展示示例数值。总结指标时用无序列表，每行一个指标，格式为\"- **指标名**：计算逻辑\"。\n\n" +
+            "6. 回复中严禁使用 Markdown 表格语法（即用 | 分隔的表格），也不要展示示例数值。\n" +
+            "7. 总结确认需求时，表格列必须用无序列表逐行列出，格式严格为\"- **列名**：计算逻辑\"，列名使用可用数据列中的原始名称（如\"员工ID\"而非\"员工\"），计算逻辑简洁说明即可。禁止在列表项中加入额外描述、小节标题或分组标签。\n\n" +
             "注意：请直接用自然语言回复，不要输出 JSON 格式代码。当用户需求明确时，回复末尾加上【需求已明确，请输入确认生成报告】。";
     }
 }
@@ -176,5 +177,10 @@ public record LlmResponse(
     List<string> Metrics,
     List<string> ChartTypes,
     string? FollowUpQuestion,
-    string? Reasoning = null
+    string? Reasoning = null,
+    string? GroupByColumn = null,
+    string? AggregateColumn = null,
+    string? AggregateType = null,
+    string? FilterColumn = null,
+    string? FilterValue = null
 );

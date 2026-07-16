@@ -60,7 +60,7 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<FileService>();
 builder.Services.AddScoped<StrategyService>();
 builder.Services.AddScoped<TemplateService>();
-builder.Services.AddScoped<ChatService>();
+builder.Services.AddScoped<ChatService>(sp => new ChatService(sp.GetRequiredService<AppDbContext>(), sp.GetRequiredService<LlmClient>()));
 builder.Services.AddScoped<ReportService>();
 builder.Services.AddSingleton<PdfGenerator>();
 builder.Services.AddHostedService<CleanupService>();
