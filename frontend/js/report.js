@@ -90,6 +90,28 @@ export function renderReport(report) {
 
       if (headers.length === 0) headers = ['指标', '数值'];
 
+      // 存储表格数据供导出使用
+      const tableRows = [];
+      allRows.forEach(r => {
+        const ci = r.indexOf(':');
+        if (isGrouped && ci > 0) {
+          const key = r.substring(0, ci).trim();
+          const rest = r.substring(ci + 1).trim();
+          const vals = rest.split(',').map(p => {
+            const eq = p.indexOf('=');
+            return eq > 0 ? p.substring(eq + 1).trim() : p.trim();
+          });
+          tableRows.push([key, ...vals]);
+        } else {
+          const vals = r.split(',').map(p => {
+            const eq = p.indexOf('=');
+            return eq > 0 ? p.substring(eq + 1).trim() : p.trim();
+          });
+          tableRows.push(vals);
+        }
+      });
+      window._reportTableData = { headers, rows: tableRows, title: report.originalFileName || '分析报告' };
+
       return '<div class="card"><h2>计算结果</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + allRows.map(r => {
         const ci = r.indexOf(':');
         if (isGrouped && ci > 0) {
@@ -177,4 +199,37 @@ export async function batchDownload(ids) {
   const a = document.createElement('a');
   a.href = url; a.download = 'reports.zip'; a.click();
   URL.revokeObjectURL(url);
+}
+
+// ===== 导出 Excel =====
+export function exportExcel() {
+  const data = window._reportTableData;
+  if (!data || !data.rows || data.rows.length === 0) {
+    alert('暂无计算结果可导出');
+    return;
+  }
+
+  // 构建 SheetJS 工作表：第一行为表头
+  const sheetData = [data.headers, ...data.rows];
+  const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+  // 自动列宽
+  const colWidths = data.headers.map((h, i) => {
+    let maxLen = h.length;
+    data.rows.forEach(r => {
+      const v = String(r[i] ?? '');
+      // 中文字符按2个宽度计算
+      const len = [...v].reduce((acc, ch) => acc + (ch.charCodeAt(0) > 127 ? 2 : 1), 0);
+      if (len > maxLen) maxLen = len;
+    });
+    return { wch: Math.min(maxLen + 3, 40) };
+  });
+  ws['!cols'] = colWidths;
+
+  const wb = XLSX.utils.book_new();
+  const sheetName = (data.title || '计算结果').substring(0, 31); // Excel sheet名最长31字符
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+  const filename = (data.title || 'report') + '.xlsx';
+  XLSX.writeFile(wb, filename);
 }
