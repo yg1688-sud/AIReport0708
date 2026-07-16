@@ -18,8 +18,8 @@ public class LlmClient
     public LlmClient(HttpClient http, IConfiguration config)
     {
         _http = http;
-        _deepseekKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY") ?? "";
-        _kimiKey = Environment.GetEnvironmentVariable("KIMI_API_KEY") ?? "";
+        _deepseekKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY") ?? config.GetValue<string> ("DEEPSEEK_API_KEY");
+        _kimiKey = Environment.GetEnvironmentVariable("KIMI_API_KEY") ?? config.GetValue<string> ("KIMI_API_KEY");
         _timeoutSeconds = config.GetValue<int>("Chat:LlmTimeoutSeconds", 30);
     }
 

@@ -18,16 +18,12 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 // === 数据库 ===
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    var connStr = builder.Configuration.GetConnectionString("Default")
-        ?? "Data Source=Data/app.db";
+    var connStr = builder.Configuration.GetConnectionString("Default");
     options.UseSqlite(connStr, o => o.MigrationsAssembly("AIExport.Api"));
 });
 
 // === JWT 认证 (T018, T019) ===
-var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET")
-    ?? builder.Configuration["Jwt:Secret"]
-    ?? "dev-secret-change-in-production-32chars!";
-
+var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? builder.Configuration["Jwt:Secret"];
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "AIExport";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "AIExport";
 var jwtExpiryHours = builder.Configuration.GetValue<int>("Jwt:ExpiryHours", 2);
@@ -46,7 +42,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwtIssuer,
             ValidAudience = jwtAudience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret!))
         };
     });
 
@@ -98,7 +94,7 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     if (!db.Users.Any(u => u.Role == UserRole.Admin))
     {
-        var adminPassword = Environment.GetEnvironmentVariable("ADMIN_PASSWORD") ?? "admin123";
+        var adminPassword = Environment.GetEnvironmentVariable("ADMIN_PASSWORD") ?? builder.Configuration["ADMIN_PASSWORD"];
         db.Users.Add(new User
         {
             Username = "admin",
