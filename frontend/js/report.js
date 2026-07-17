@@ -54,7 +54,7 @@ export function renderReport(report) {
   const stats = chapters.statistics || [];
 
   container.innerHTML = `
-    ${chapters.customRequirements ? '<div class="card"><h2>确认的分析需求</h2><p style="white-space:pre-wrap;color:#666;">' + chapters.customRequirements + '</p></div>' : ''}
+    ${'' /* 确认的分析需求卡片已隐藏 */}
     ${chapters.summaryMetrics?.length ? '<div class="card"><h2>汇总指标</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><tbody>' + chapters.summaryMetrics.map(m => { const i = m.indexOf('='); return '<tr><td style="padding:8px 16px;"><strong>' + m.substring(0,i) + '</strong></td><td style="padding:8px 16px;">' + m.substring(i+1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : ''}
     ${chapters.computedResults?.length ? (() => {
       // 从 meta 行 "分组列: 片区 | ..." 提取实际分组列名作为首列表头

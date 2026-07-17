@@ -149,6 +149,8 @@ export async function sendMessage(content) {
 function renderMarkdown(text) {
   if (!text) return '';
   let html = text
+    // 隐藏 PARAMS 机器标记
+    .replace(/<!--PARAMS[\s\S]*?-->/g, '')
     // 转义 HTML
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     // 粗体 **text** 或 __text__

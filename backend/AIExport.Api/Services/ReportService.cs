@@ -164,12 +164,37 @@ public class ReportService
         var colIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < cols.Length; i++) colIndex[cols[i].Trim()] = i;
 
-        // === 0. 优先使用 LLM 提取的结构化计算参数（JSON），直接跳过正则检测 ===
+        // === 0. 变量声明 ===
         string? groupCol = null; int groupIdx = -1;
         string? dedupCol = null; int dedupIdx = -1;
         string? filterCol = null; string? filterVal = null; int filterIdx = -1;
         string? sumCol = null; int sumIdx = -1;
         string? aggType = null;
+        string? pivotCol = null; int pivotIdx = -1;
+        var valueGroups = new List<List<string>>();
+
+        // === 0a. 优先解析 LLM 附加的 PARAMS 机器标记（<!--PARAMS group=... sum=... -->） ===
+        var paramsMatch = Regex.Match(requirements, @"<!--PARAMS\s+(.+?)-->");
+        if (paramsMatch.Success)
+        {
+            var ptext = paramsMatch.Groups[1].Value;
+            foreach (Match pm in Regex.Matches(ptext, @"(\S+?)=(\S+)"))
+            {
+                var pk = pm.Groups[1].Value; var pv = pm.Groups[2].Value;
+                switch (pk)
+                {
+                    case "group": if (colIndex.TryGetValue(pv, out var gi)) { groupCol = pv; groupIdx = gi; } break;
+                    case "sum": if (colIndex.TryGetValue(pv, out var si)) { sumCol = pv; sumIdx = si; aggType = "sum"; } break;
+                    case "dedup": if (colIndex.TryGetValue(pv, out var di)) { dedupCol = pv; dedupIdx = di; aggType = "dedup"; } break;
+                    case "pivot": if (colIndex.TryGetValue(pv, out var pi)) { pivotCol = pv; pivotIdx = pi; } break;
+                    case "values":
+                        valueGroups = pv.Split(';').Select(vg => vg.Split('+').Select(x => x.Trim()).Where(x => x.Length > 0).ToList()).Where(g => g.Count > 0).ToList();
+                        break;
+                }
+            }
+        }
+
+        // === 0b. 兜底使用 ComputationParams JSON（LLM 提取的结构化参数） ===
         if (!string.IsNullOrEmpty(computationParams))
         {
             try
@@ -204,6 +229,15 @@ public class ReportService
                 foreach (var c in mentionedCols)
                 {
                     if (c == hint || c.Contains(hint)) { groupCol = c; groupIdx = colIndex[c]; break; }
+                }
+                // hint不匹配任何列时，回溯"按"之前的文本查找列名（如"片区：按原始列分组"→"片区"）
+                if (groupIdx < 0)
+                {
+                    var prefix = requirements[Math.Max(0, pat.Index - 12)..pat.Index];
+                    foreach (var c in mentionedCols)
+                    {
+                        if (prefix.Contains(c)) { groupCol = c; groupIdx = colIndex[c]; break; }
+                    }
                 }
                 if (groupIdx >= 0) break;
             }
@@ -257,13 +291,46 @@ public class ReportService
 
         } // end if (dedupIdx < 0)
 
-        // === 4. 找求和列（过滤检测之前，优先识别"汇总/求和"关键词附近的计算列） ===
+        // === 3b. 透视检测（PARAMS未提供valueGroups时从文本提取） ===
+        if (valueGroups.Count == 0) foreach (Match lm in Regex.Matches(requirements, @"(?m)^\s*(?:[-*•]|\d+[.、)])\s*(.+)$"))
+        {
+            var line = lm.Groups[1].Value;
+            // 把描述性前缀去掉（如"指定为 "），保留数字和分隔符部分
+            var nums = Regex.Matches(line, @"\d{4,}").Select(x => x.Value).Distinct().ToList();
+            if (nums.Count == 0) continue;
+            // 同一行中多个数字被"、"分隔表示不同组，"和/与"连接表示同组合并
+            // 先按"、"拆分，每段提取所有数字作为一个组
+            // 如果一段中有"即："或"："，只取冒号后面的部分（前言中的数字如"其中105529和111496"不参与分组）
+            var segments = line.Split('、');
+            foreach (var seg in segments)
+            {
+                var colonIdx = Math.Max(seg.LastIndexOf('：'), seg.LastIndexOf(':'));
+                var effective = colonIdx >= 0 ? seg[(colonIdx + 1)..] : seg;
+                var segNums = Regex.Matches(effective, @"\d{4,}").Select(x => x.Value).Distinct().ToList();
+                if (segNums.Count > 0) valueGroups.Add(segNums);
+            }
+        }
+        if (valueGroups.Count > 0 && pivotIdx < 0)
+        {
+            var flat = valueGroups.SelectMany(v => v).ToHashSet();
+            var bestHits = 0;
+            foreach (var c in colIndex.Keys)
+            {
+                if (c == groupCol) continue;
+                var idx = colIndex[c];
+                var colVals = allRows.Where(r => r.Count > idx).Select(r => r[idx].Trim()).ToHashSet();
+                var hits = flat.Count(v => colVals.Contains(v));
+                if (hits > bestHits) { bestHits = hits; pivotCol = c; pivotIdx = idx; }
+            }
+        }
+
+        // === 4. 找求和列（过滤检测之前，排除已识别的透视列/分组列/去重列） ===
         if (sumIdx < 0)
         {
         var sumKws = new[] { "求和", "合计", "汇总", "总和", "销量" };
         foreach (var c in mentionedCols)
         {
-            if (c == groupCol || c == dedupCol) continue;
+            if (c == groupCol || c == dedupCol || c == pivotCol) continue;
             foreach (Match cm in Regex.Matches(requirements, Regex.Escape(c)))
             {
                 var s = Math.Max(0, cm.Index - 5);
@@ -319,29 +386,7 @@ public class ReportService
 
         if (groupIdx >= 0 && sumIdx >= 0)
         {
-            // === 求和型计算（分组+求和存在时优先于去重） ===
-            // 从列表项提取枚举值组（如 ERPID 组），供透视计算
-            var valueGroups = new List<List<string>>();
-            foreach (Match lm in Regex.Matches(requirements, @"(?m)^\s*(?:[-*•]|\d+[.、)])\s*(.+)$"))
-            {
-                var nums = Regex.Matches(lm.Groups[1].Value, @"\d{4,}").Select(x => x.Value).Distinct().ToList();
-                if (nums.Count > 0) valueGroups.Add(nums);
-            }
-            string? pivotCol = null; int pivotIdx = -1;
-            if (valueGroups.Count > 0)
-            {
-                var flat = valueGroups.SelectMany(v => v).ToHashSet();
-                var bestHits = 0;
-                foreach (var c in mentionedCols)
-                {
-                    if (c == groupCol || c == sumCol) continue;
-                    var idx = colIndex[c];
-                    var colVals = allRows.Where(r => r.Count > idx).Select(r => r[idx].Trim()).ToHashSet();
-                    var hits = flat.Count(v => colVals.Contains(v));
-                    if (hits > bestHits) { bestHits = hits; pivotCol = c; pivotIdx = idx; }
-                }
-            }
-
+            // === 求和型计算（分组+求和存在时优先于去重，透视列已在步骤3b提前检测） ===
             var groups = allRows.Where(r => r.Count > groupIdx && !string.IsNullOrWhiteSpace(r[groupIdx]))
                 .GroupBy(r => r[groupIdx].Trim()).OrderBy(g => g.Key);
             if (pivotIdx >= 0)
