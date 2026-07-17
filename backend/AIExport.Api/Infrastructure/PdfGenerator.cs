@@ -80,38 +80,24 @@ public class PdfGenerator
                             }
                         }).ToList();
 
-                        if (headers.Count == 2)
-                            col.Item().Table(tbl => {
-                                tbl.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
-                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[0]).Bold();
-                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[1]).Bold();
-                                foreach (var (k, v) in rows) { if(isGrouped) tbl.Cell().Border(1).Padding(4).Text(k); tbl.Cell().Border(1).Padding(4).Text(v.Count>0?v[0]:""); if(!isGrouped) tbl.Cell().Border(1).Padding(4).Text(v.Count>1?v[1]:""); }
-                            });
-                        else if (headers.Count == 3 && !isGrouped)
-                            col.Item().Table(tbl => {
-                                tbl.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn(); });
-                                foreach(var h in headers) tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(h).Bold();
-                                foreach (var (_, v) in rows) { foreach(var vv in v) tbl.Cell().Border(1).Padding(4).Text(vv); }
-                            });
-                        else if (headers.Count == 3)
-                            col.Item().Table(tbl => {
-                                tbl.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn(); });
-                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[0]).Bold();
-                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[1]).Bold();
-                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[2]).Bold();
-                                foreach (var (k, v) in rows) { tbl.Cell().Border(1).Padding(4).Text(k); tbl.Cell().Border(1).Padding(4).Text(v.Count>0?v[0]:""); tbl.Cell().Border(1).Padding(4).Text(v.Count>1?v[1]:""); }
-                            });
-                        else if (headers.Count == 4)
-                            col.Item().Table(tbl => {
-                                tbl.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn(); });
-                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[0]).Bold();
-                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[1]).Bold();
-                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[2]).Bold();
-                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[3]).Bold();
-                                foreach (var (k, v) in rows) { if(isGrouped)tbl.Cell().Border(1).Padding(4).Text(k); for(int i=0;i<3;i++) tbl.Cell().Border(1).Padding(4).Text(i<v.Count?v[i]:""); }
-                            });
-                        else
-                            col.Item().Text(string.Join("\n", items.Select(r => $"  {r}"))).FontSize(11).LineHeight(1.5f);
+                        // 动态表格渲染，支持任意列数
+                        col.Item().Table(tbl =>
+                        {
+                            // 列定义：首列（分组键）+ 数据列
+                            var totalCols = isGrouped ? headers.Count : headers.Count;
+                            tbl.ColumnsDefinition(c => { for (int i = 0; i < totalCols; i++) c.RelativeColumn(); });
+                            // 表头
+                            if (isGrouped) tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[0]).Bold();
+                            for (int i = isGrouped ? 1 : 0; i < headers.Count; i++)
+                                tbl.Cell().Border(1).Background(Colors.Grey.Lighten3).Padding(4).Text(headers[i]).Bold();
+                            // 数据行
+                            foreach (var (k, v) in rows)
+                            {
+                                if (isGrouped) tbl.Cell().Border(1).Padding(4).Text(k);
+                                for (int i = 0; i < headers.Count - (isGrouped ? 1 : 0); i++)
+                                    tbl.Cell().Border(1).Padding(4).Text(i < v.Count ? v[i] : "");
+                            }
+                        });
                     }
                 });
 
