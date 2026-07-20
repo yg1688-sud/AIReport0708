@@ -28,12 +28,12 @@
 # Windows PowerShell
 $env:DEEPSEEK_API_KEY = "sk-your-api-key"
 $env:JWT_SECRET = "your-jwt-secret-at-least-32-chars"
-$env:ADMIN_PASSWORD = "admin123"
+$env:ADMIN_PASSWORD = "your-pwd"
 
 # Linux/macOS
 export DEEPSEEK_API_KEY="sk-your-api-key"
 export JWT_SECRET="your-jwt-secret-at-least-32-chars"
-export ADMIN_PASSWORD="admin123"
+export ADMIN_PASSWORD="your-pwd"
 ```
 
 > ⚠️ 生产环境凭据应通过 Vault/Secret Manager 注入。

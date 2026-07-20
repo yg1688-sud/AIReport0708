@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using Microsoft.Extensions.Configuration;
 using AIExport.Api.Data;
 using AIExport.Api.Infrastructure;
 using AIExport.Api.Models.Dtos;
@@ -88,7 +89,8 @@ public static class ChatEndpoints
             if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
             { context.Response.StatusCode = 401; await context.Response.WriteAsync(""); return; }
             try {
-                var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? "dev-secret-change-in-production-32chars!";
+                var config = context.RequestServices.GetRequiredService<IConfiguration>();
+                var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? config["Jwt:Secret"];
                 new JwtSecurityTokenHandler().ValidateToken(authHeader[7..], new TokenValidationParameters
                 { ValidateIssuerSigningKey = true, IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)), ValidateIssuer = false, ValidateAudience = false }, out _);
             } catch { context.Response.StatusCode = 401; await context.Response.WriteAsync(""); return; }
