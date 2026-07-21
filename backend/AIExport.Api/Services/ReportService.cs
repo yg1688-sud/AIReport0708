@@ -68,7 +68,7 @@ public class ReportService
             var customReq = report.Session.Requirement?.CustomRequirements;
 
             var colIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < cols.Length; i++) colIndex[cols[i].Trim()] = i;
+            for (int i = 0; i < cols.Length; i++) { var c = cols[i].Trim(); if (c.Length > 0) colIndex[c] = i; }
 
             // 代码直接计算（正则匹配常见分析模式：去重/过滤/比率）
             computedResults = ComputeCustomRequirements(customReq, allRows, cols, out var summaryMetrics,
@@ -209,7 +209,7 @@ public class ReportService
         var reasoningStart = requirements.IndexOf("<!--reasoning:");
         if (reasoningStart >= 0) requirements = requirements[..reasoningStart].TrimEnd();
         var colIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < cols.Length; i++) colIndex[cols[i].Trim()] = i;
+        for (int i = 0; i < cols.Length; i++) { var c = cols[i].Trim(); if (c.Length > 0) colIndex[c] = i; }
 
         // === 0. 变量声明 ===
         string? groupCol = null; int groupIdx = -1;
@@ -455,13 +455,27 @@ public class ReportService
                 // 无值组：按分组列直接求和，同时输出需求中提及的其他列（如部门/门店/姓名）用于明细展示
                 // 展示列 = mentionedCols 中非分组/求和/透视的列（求和分支中去重列/过滤列不影响展示）
                 var displayCols = mentionedCols
-                    .Where(c => c != groupCol && c != sumCol && c != pivotCol)
+                    .Where(c => c != groupCol && c != sumCol && c != pivotCol && c != "总销售额")
                     .Select(c => (name: c, idx: colIndex[c]))
                     .ToList();
 
                 // 尝试提取用户指定的固定总销售额（如"总销售额：55448.48"）
-                var fixedTotalMatch = Regex.Match(requirements, @"总销售额\**\s*[：:]\D*(\d+(?:\.\d+)?)");
-                double? fixedTotal = fixedTotalMatch.Success && double.TryParse(fixedTotalMatch.Groups[1].Value, out var ft) && ft > 0 ? ft : null;
+                // 优先从Excel的"总销售额"列读取（最可靠）
+                double? fixedTotal = null;
+                if (colIndex.TryGetValue("总销售额", out var totalIdx))
+                {
+                    foreach (var row in allRows)
+                    {
+                        if (row.Count > totalIdx && double.TryParse(row[totalIdx], out var cv) && cv > 0)
+                        { fixedTotal = cv; break; }
+                    }
+                }
+                // 数据列读不到时，用正则从需求文本提取（限定不跨行，避免误匹配如"18.73%"）
+                if (fixedTotal == null)
+                {
+                    var ftm = Regex.Match(requirements, @"总销售额\**\s*[：:][^\d\n]*(\d+(?:\.\d+)?)");
+                    if (ftm.Success && double.TryParse(ftm.Groups[1].Value, out var ft) && ft > 10) fixedTotal = ft;
+                }
 
                 var distinctKeys = new HashSet<string>();
                 var storeCol = colIndex.TryGetValue("门店", out var si) ? ("门店", si)
@@ -585,7 +599,7 @@ public class ReportService
         var results = new List<string>();
         if (string.IsNullOrEmpty(requirements) || allRows.Count == 0) return results;
         var colIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < cols.Length; i++) colIndex[cols[i].Trim()] = i;
+        for (int i = 0; i < cols.Length; i++) { var c = cols[i].Trim(); if (c.Length > 0) colIndex[c] = i; }
 
         // 检测分组维度（如"按片区分组" / "根据片区" / "各片区"）
         var groupPattern = new Regex(@"(?:按|根据)\s*(\S+?)\s*(?:分组|维度|进行|分别统计|统计)|各\s*(\S+?)\s*(?:分别|单独)", RegexOptions.IgnoreCase);
