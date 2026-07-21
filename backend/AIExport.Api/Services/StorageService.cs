@@ -49,7 +49,7 @@ public class StorageService
     {
         if (!Directory.Exists(_basePath)) return;
 
-        var cutoff = DateTime.UtcNow.AddDays(-retentionDays);
+        var cutoff = DateTime.Now.AddDays(-retentionDays);
         foreach (var file in Directory.EnumerateFiles(_basePath, "*", SearchOption.AllDirectories))
         {
             if (File.GetLastWriteTimeUtc(file) < cutoff)

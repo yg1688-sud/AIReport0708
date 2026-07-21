@@ -12,7 +12,7 @@ public class UploadBatch
     public long TotalSize { get; set; }
     public BatchStatus BatchStatus { get; set; } = BatchStatus.Uploading;
     public Strategy? Strategy { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
 
     public User User { get; set; } = null!;
     public ICollection<UploadedFile> Files { get; set; } = new List<UploadedFile>();

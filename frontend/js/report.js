@@ -40,7 +40,6 @@ async function loadAndRenderReport(reportId) {
   const res = await get(`/reports/${reportId}`);
   const report = await res.json();
   renderReport(report);
-  showPostReportActions(report);
 }
 
 export function renderReport(report) {
@@ -52,11 +51,17 @@ export function renderReport(report) {
   try { chapters = JSON.parse(report.chapters || '{}'); } catch { chapters = {}; }
   const overview = chapters.overview || {};
   const stats = chapters.statistics || [];
+  var hasChart = (chapters.charts?.type || []).length > 0 && (chapters.charts?.groupedData || []).length > 0;
+  var hasTable = (chapters.computedResults || []).filter(function(r) { return !r.startsWith('分组列:') && r !== '---'; }).length > 0;
+  var reqText = chapters.customRequirements || '';
+  var wantsChart = hasChart && /柱状图|折线图|饼图|漏斗图|条形图/.test(reqText);
+  var wantsTable = hasTable && (!wantsChart || reqText.includes('表格'));
 
   container.innerHTML = `
     ${'' /* 确认的分析需求卡片已隐藏 */}
-    ${chapters.summaryMetrics?.length ? '<div class="card"><h2>汇总指标</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><tbody>' + chapters.summaryMetrics.map(m => { const i = m.indexOf('='); return '<tr><td style="padding:8px 16px;"><strong>' + m.substring(0,i) + '</strong></td><td style="padding:8px 16px;">' + m.substring(i+1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : ''}
-    ${chapters.computedResults?.length ? (() => {
+    ${wantsTable && chapters.summaryMetrics?.length ? '<div class="card"><h2>汇总指标</h2><table class="data-table" style="border:1px solid #e8e8e8;width:100%;"><tbody>' + chapters.summaryMetrics.map(m => { const i = m.indexOf('='); return '<tr><td style="padding:8px 16px;"><strong>' + m.substring(0,i) + '</strong></td><td style="padding:8px 16px;">' + m.substring(i+1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : ''}
+    ${wantsChart ? '<div class="card"><h2>分析图表</h2><div style="max-height:400px;" id="chartContainer"><canvas id="analysisChart"></canvas></div></div>' : ''}
+    ${wantsTable && chapters.computedResults?.length ? (() => {
       // 从 meta 行 "分组列: 片区 | ..." 提取实际分组列名作为首列表头
       const metaLine = chapters.computedResults.find(r => r.startsWith('分组列:'));
       const groupColName = metaLine ? metaLine.split('|')[0].replace('分组列:', '').trim() : '分组';
@@ -138,6 +143,40 @@ export function renderReport(report) {
     ${!chapters.computedResults?.length && !chapters.crossAnalysis?.length && !chapters.customRequirements && stats.length ? '<div class="card"><h2>描述性统计</h2><table class="data-table" style="border:1px solid #e8e8e8;"><thead><tr><th>列名</th><th>均值</th><th>中位数</th><th>最小值</th><th>最大值</th></tr></thead><tbody>' + stats.map(s => '<tr><td><strong>' + (s.ColumnName || '') + '</strong></td><td>' + (s.Mean || 0) + '</td><td>' + (s.Median || 0) + '</td><td>' + (s.Min || 0) + '</td><td>' + (s.Max || 0) + '</td></tr>').join('') + '</tbody></table></div>' : ''}
     ${chapters.crossAnalysis?.length ? '<div class="card"><h2>分组统计结果</h2><table class="data-table" style="border:1px solid #e8e8e8;"><thead><tr><th>分组</th><th>结果</th></tr></thead><tbody>' + chapters.crossAnalysis.map(c => '<tr><td>' + c.split(':')[0] + '</td><td>' + c.split(':').slice(1).join(':') + '</td></tr>').join('') + '</tbody></table></div>' : ''}`;
 
+  // 渲染图表
+  if (wantsChart) {
+    setTimeout(function() {
+      var canvas = document.getElementById('analysisChart');
+      if (!canvas) return;
+      var data = (chapters.charts || {}).groupedData || [];
+      var labels = data.map(function(d) { return d.dimension; });
+      var values = data.map(function(d) { return d.sum || d.count || 0; });
+      if (/漏斗图/.test(reqText)) {
+        var container = document.getElementById('chartContainer');
+        if (!container) return;
+        container.style.maxHeight = 'none';
+        var maxVal = Math.max.apply(null, values.concat([1]));
+        var colors = ['#1677ff','#4096ff','#69b1ff','#91caff','#bae0ff','#1677ff99','#4096ff99','#69b1ff99','#91caff99','#bae0ff99'];
+        var svg = '<svg width="100%" height="' + (labels.length * 50 + 20) + '" viewBox="0 0 600 ' + (labels.length * 50 + 20) + '">';
+        for (var i = 0; i < labels.length; i++) {
+          var topW = 400 + 160 * (1 - i / labels.length), botW = 400 + 160 * (1 - (i + 1) / labels.length), y = i * 50 + 10;
+          svg += '<polygon points="' + ((600-topW)/2) + ',' + y + ' ' + ((600+topW)/2) + ',' + y + ' ' + ((600+botW)/2) + ',' + (y+44) + ' ' + ((600-botW)/2) + ',' + (y+44) + '" fill="' + colors[i%10] + '" opacity="0.85" stroke="#fff" stroke-width="2"/>';
+          svg += '<text x="300" y="' + (y+27) + '" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">#' + (i+1) + ' ' + labels[i] + ': ' + values[i] + '</text>';
+        }
+        svg += '</svg>'; container.innerHTML = svg;
+      } else {
+        var ctx = canvas.getContext('2d');
+        var chartType = 'bar', chartOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } };
+        if (/折线图/.test(reqText)) chartType = 'line';
+        else if (/条形图/.test(reqText)) chartOptions.indexAxis = 'y';
+        else if (/饼图/.test(reqText)) { chartType = 'pie'; delete chartOptions.scales; chartOptions.plugins = { legend: { position: 'right' } }; }
+        var bgColors = ['#1677ff','#4096ff','#69b1ff','#91caff','#bae0ff','#ff7875','#ff9c6e','#ffc069','#ffe7ba','#b7eb8f','#5cdbd3','#85a5ff','#b37feb','#ff85c0','#597ef7'];
+        var ds = [{ label: '数据', data: values, backgroundColor: chartType === 'pie' ? bgColors : '#1677ff66', borderColor: '#1677ff', borderWidth: 1 }];
+        new Chart(ctx, { type: chartType, data: { labels: labels, datasets: ds }, options: chartOptions });
+      }
+    }, 100);
+  }
+
   showPostReportActions(report);
 }
 
@@ -210,17 +249,28 @@ export function exportExcel() {
     return;
   }
 
-  // 构建 SheetJS 工作表：第一行为表头，末尾追加汇总指标
-  const sheetData = [data.headers, ...data.rows];
+  // 构建 SheetJS 工作表：汇总指标在表格上方
+  var sheetData = [];
+  var summaryStartRow = 0;
   if (data.summaryMetrics?.length) {
-    sheetData.push([]); // 空行分隔
     sheetData.push(['汇总指标', '']);
     data.summaryMetrics.forEach(m => {
-      const i = m.indexOf('=');
+      var i = m.indexOf('=');
       sheetData.push([i > 0 ? m.substring(0, i) : m, i > 0 ? m.substring(i + 1) : '']);
     });
+    sheetData.push([]); // 空行分隔
+    summaryStartRow = 0;
   }
+  var headerRow = sheetData.length; // 表头所在行号
+  sheetData.push(data.headers);
+  data.rows.forEach(function(r) { sheetData.push(r); });
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+  // 合并"汇总指标"标题行（跨所有列）
+  if (data.summaryMetrics?.length && data.headers.length > 1) {
+    if (!ws['!merges']) ws['!merges'] = [];
+    ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: data.headers.length - 1 } });
+  }
 
   // 自动列宽
   const colWidths = data.headers.map((h, i) => {

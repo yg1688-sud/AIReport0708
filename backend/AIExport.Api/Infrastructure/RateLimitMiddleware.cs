@@ -20,7 +20,7 @@ public class RateLimitMiddleware
             var key = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
                 ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-            var now = DateTime.UtcNow;
+            var now = DateTime.Now;
             var window = _requests.GetOrAdd(key, _ => new());
 
             lock (window)

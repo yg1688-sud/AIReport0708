@@ -15,7 +15,7 @@ public class AnalysisReport
     public string? PdfPath { get; set; }
     public long? FileSize { get; set; }
     public string? ErrorMessage { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? CompletedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
 

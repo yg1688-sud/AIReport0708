@@ -37,7 +37,7 @@ public class AuthService
             throw new UnauthorizedAccessException("用户名或密码错误");
 
         // 更新最近登录时间
-        user.LastLoginAt = DateTime.UtcNow;
+        user.LastLoginAt = DateTime.Now;
         await _db.SaveChangesAsync();
 
         var token = _jwt.GenerateToken(user.Id, user.Username, user.Role.ToString().ToLower());
@@ -45,7 +45,7 @@ public class AuthService
 
         return new LoginResponse(
             Token: token,
-            ExpiresAt: DateTime.UtcNow.AddHours(_jwt.ExpiryHours),
+            ExpiresAt: DateTime.Now.AddHours(_jwt.ExpiryHours),
             User: new UserInfo(user.Id, user.Username, roleName)
         );
     }

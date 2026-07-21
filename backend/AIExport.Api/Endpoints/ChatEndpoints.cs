@@ -47,7 +47,7 @@ public static class ChatEndpoints
                 var rtag = "<!--reasoning:"; var rend = "-->";
                 var ri = reply.IndexOf(rtag);
                 if (ri >= 0) { var s = ri + rtag.Length; var e = reply.IndexOf(rend, s); if (e > s) { reasoning = reply[s..e]; content = reply[..ri].TrimEnd(); } }
-                return Results.Ok(new ChatMessageDto(Guid.NewGuid(), "system", content, DateTime.UtcNow, reasoning));
+                return Results.Ok(new ChatMessageDto(Guid.NewGuid(), "system", content, DateTime.Now, reasoning));
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("超时"))
             {

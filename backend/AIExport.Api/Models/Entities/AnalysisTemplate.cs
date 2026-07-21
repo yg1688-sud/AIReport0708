@@ -12,7 +12,7 @@ public class AnalysisTemplate
     public string ColumnNames { get; set; } = "[]";  // JSON array — 用于列校验
     public string? CustomRequirements { get; set; }   // 用户自定义需求描述
     public Strategy Strategy { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
 
     public User User { get; set; } = null!;
     public ICollection<AnalysisSession> Sessions { get; set; } = new List<AnalysisSession>();

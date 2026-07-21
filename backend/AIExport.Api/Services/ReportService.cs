@@ -80,6 +80,53 @@ public class ReportService
             else if (crossAnalysis.Count > 0)
                 analysisText = string.Join("\n", crossAnalysis);
 
+            // 图表数据兜底：LLM维度/指标匹配为空时，从computedResults反哺
+            if (groupedResults.Count == 0 && computedResults.Count > 2)
+            {
+                var ml = computedResults.FirstOrDefault(r => r.StartsWith("分组列:"));
+                if (ml != null)
+                {
+                    var sumColName = "合计";
+                    var sm = Regex.Match(ml, @"求和列:\s*(\S+)");
+                    if (sm.Success) sumColName = sm.Groups[1].Value.Trim();
+                    var rows = computedResults.Where(r => !r.StartsWith("分组") && r != "---" && r.Contains(':')).ToList();
+                    // 从需求文本解析图表横轴标签列（如"横轴为姓名"→"姓名"）
+                    var axisMatch = Regex.Match(customReq ?? "", @"[横xX]轴为(\S+?)(?:[，,;\s]|$)");
+                    var labelCol = axisMatch.Success ? axisMatch.Groups[1].Value.Trim() : null;
+                    var extracted = new List<object>();
+                    foreach (var row in rows)
+                    {
+                        var ci = row.IndexOf(':');
+                        if (ci < 0) continue;
+                        var key = row[..ci].Trim();
+                        var rest = row[(ci + 1)..];
+                        // 有横轴标签列时，提取该列值作为 dimension
+                        var dimension = key;
+                        if (labelCol is not null)
+                        {
+                            var lp = rest.IndexOf($"{labelCol}=");
+                            if (lp >= 0)
+                            {
+                                var lvs = rest[(lp + labelCol.Length + 1)..].Split(',')[0].Trim();
+                                if (lvs.Length > 0) dimension = lvs;
+                            }
+                        }
+                        var sv = 0.0; var sp = $"{sumColName}="; var si = rest.IndexOf(sp);
+                        if (si >= 0) { var vs = rest[(si + sp.Length)..].Split(',')[0].Trim(); double.TryParse(vs, out sv); }
+                        extracted.Add(new { dimension, count = 1, sum = sv, avg = sv });
+                    }
+                    if (extracted.Count > 0)
+                    {
+                        var topN = 20;
+                        var topMatch = Regex.Match(customReq ?? "", @"(?:前|Top\s*|TOP\s*)(\d+)\s*(?:名|位|个)?");
+                        if (topMatch.Success) int.TryParse(topMatch.Groups[1].Value, out topN);
+                        extracted = extracted.OrderByDescending(x => { dynamic d = x; return d.sum; }).Take(topN).ToList();
+                        groupedResults.AddRange(extracted);
+                    }
+                }
+            }
+            chartData = new { type = reqCharts, groupedData = groupedResults };
+
             NotifyProgress(reportId, "rendering", 95, "正在生成分析报告...");
             var pdfData = BuildReportData(report, cols, stats, totalRows, crossAnalysis, analysisText, computedResults, summaryMetrics);
             byte[] pdfBytes = Array.Empty<byte>();
@@ -105,7 +152,7 @@ public class ReportService
             });
 
             report.Chapters = chapters; report.PdfPath = string.IsNullOrEmpty(pdfPath) ? null : pdfPath; report.FileSize = pdfBytes.Length;
-            report.ReportStatus = ReportStatus.Completed; report.CompletedAt = DateTime.UtcNow;
+            report.ReportStatus = ReportStatus.Completed; report.CompletedAt = DateTime.Now;
             await _db.SaveChangesAsync(ct);
             NotifyProgress(reportId, "complete", 100, "报告生成完成");
             return new GenerateResult(ReportStatus.Completed, chapters, null);
@@ -141,7 +188,7 @@ public class ReportService
         var dims = req is not null ? JsonSerializer.Deserialize<List<string>>(req.Dimensions) ?? new() : new();
         var mets = req is not null ? JsonSerializer.Deserialize<List<string>>(req.Metrics) ?? new() : new();
         var customReq = report.Session.Requirement?.CustomRequirements;
-        return new ReportData($"数据分析报告 — {report.OriginalFileName}", DateTime.UtcNow,
+        return new ReportData($"数据分析报告 — {report.OriginalFileName}", DateTime.Now,
             new OverviewData(totalRows, headers.Length, stats.MissingRate, report.OriginalFileName),
             stats.ColumnStats.Select(s => new StatisticRow(s.ColumnName, s.Mean, s.Median, s.Min, s.Max, s.StdDev)).ToList(),
             chartTypes, crossAnalysis.Select(c => new CrossRow(string.Join("、", dims), string.Join("、", mets), c)).ToList(),

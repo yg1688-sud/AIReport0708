@@ -10,7 +10,7 @@ public class AnalysisRequirement
     public string? Filters { get; set; }            // JSON object
     public string? CustomRequirements { get; set; } // 用户自定义需求描述
     public string? ComputationParams { get; set; }   // JSON: LLM提取的计算参数 {groupByColumn,aggregateColumn,aggregateType,filterColumn,filterValue}
-    public DateTime ConfirmedAt { get; set; } = DateTime.UtcNow;
+    public DateTime ConfirmedAt { get; set; } = DateTime.Now;
 
     public AnalysisSession Session { get; set; } = null!;
 }

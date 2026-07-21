@@ -22,7 +22,7 @@ public class CleanupService : BackgroundService
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
                 var expired = await db.AnalysisReports
-                    .Where(r => r.ExpiresAt < DateTime.UtcNow)
+                    .Where(r => r.ExpiresAt < DateTime.Now)
                     .ToListAsync(ct);
 
                 foreach (var report in expired)

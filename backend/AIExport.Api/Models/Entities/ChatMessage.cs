@@ -8,7 +8,7 @@ public class ChatMessage
     public Guid SessionId { get; set; }
     public MessageSender Sender { get; set; }
     public string Content { get; set; } = string.Empty;
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public DateTime Timestamp { get; set; } = DateTime.Now;
 
     public AnalysisSession Session { get; set; } = null!;
 }

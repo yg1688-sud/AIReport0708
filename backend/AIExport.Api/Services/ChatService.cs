@@ -39,7 +39,7 @@ public class ChatService
             TemplateId = templateId,
             SessionStatus = SessionStatus.Chatting,
             Mode = mode,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(30)
+            ExpiresAt = DateTime.Now.AddMinutes(30)
         };
         _db.AnalysisSessions.Add(session);
 
@@ -81,7 +81,7 @@ public class ChatService
             ?? throw new InvalidOperationException("会话不存在");
 
         // 检查会话超时
-        if (DateTime.UtcNow > session.ExpiresAt)
+        if (DateTime.Now > session.ExpiresAt)
         {
             session.SessionStatus = SessionStatus.Timeout;
             await _db.SaveChangesAsync();
@@ -196,11 +196,11 @@ public class ChatService
                 ChartTypes = template.ChartTypes,
                 Filters = template.Filters,
                 CustomRequirements = template.CustomRequirements,
-                ConfirmedAt = DateTime.UtcNow
+                ConfirmedAt = DateTime.Now
             };
             _db.AnalysisRequirements.Add(req);
             session.SessionStatus = SessionStatus.Confirmed;
-            session.ConfirmedAt = DateTime.UtcNow;
+            session.ConfirmedAt = DateTime.Now;
 
             var rep = new AnalysisReport
             {
@@ -209,7 +209,7 @@ public class ChatService
                 ReportStatus = ReportStatus.Generating,
                 Mode = session.Mode,
                 ReportType = template.Strategy == Strategy.Merge ? ReportType.MergeReport : ReportType.SingleFileReport,
-                ExpiresAt = DateTime.UtcNow.AddDays(7)
+                ExpiresAt = DateTime.Now.AddDays(7)
             };
             _db.AnalysisReports.Add(rep);
             await _db.SaveChangesAsync();
@@ -296,10 +296,10 @@ public class ChatService
                 filterColumn = parseResult.FilterColumn,
                 filterValue = parseResult.FilterValue
             });
-        requirement.ConfirmedAt = DateTime.UtcNow;
+        requirement.ConfirmedAt = DateTime.Now;
 
         session.SessionStatus = SessionStatus.Confirmed;
-        session.ConfirmedAt = DateTime.UtcNow;
+        session.ConfirmedAt = DateTime.Now;
 
         // 创建报告记录
         var report = new AnalysisReport
@@ -309,7 +309,7 @@ public class ChatService
             ReportStatus = ReportStatus.Generating,
             Mode = session.Mode,
             ReportType = session.Batch.Strategy == Strategy.Merge ? ReportType.MergeReport : ReportType.SingleFileReport,
-            ExpiresAt = DateTime.UtcNow.AddDays(7)
+            ExpiresAt = DateTime.Now.AddDays(7)
         };
         _db.AnalysisReports.Add(report);
 

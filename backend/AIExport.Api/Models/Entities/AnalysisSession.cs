@@ -10,7 +10,7 @@ public class AnalysisSession
     public Guid? TemplateId { get; set; }
     public SessionStatus SessionStatus { get; set; } = SessionStatus.Chatting;
     public SessionMode Mode { get; set; } = SessionMode.Chat;
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? ConfirmedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
 

@@ -16,7 +16,7 @@ public class UploadedFile
     public string? ColumnHeaders { get; set; } // JSON array
     public ParseStatus ParseStatus { get; set; } = ParseStatus.Uploading;
     public string? ErrorMessage { get; set; }
-    public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UploadedAt { get; set; } = DateTime.Now;
 
     public UploadBatch Batch { get; set; } = null!;
 }
