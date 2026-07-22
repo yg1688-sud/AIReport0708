@@ -91,7 +91,7 @@ public class ReportService
                     if (sm.Success) sumColName = sm.Groups[1].Value.Trim();
                     var rows = computedResults.Where(r => !r.StartsWith("分组") && r != "---" && r.Contains(':')).ToList();
                     // 从需求文本解析图表横轴标签列（如"横轴为姓名"→"姓名"）
-                    var axisMatch = Regex.Match(customReq ?? "", @"[横xX]轴为(\S+?)(?:[，,;\s]|$)");
+                    var axisMatch = Regex.Match(customReq ?? "", @"[横xX]轴为\**(.+?)\**\s*(?:[，,;\s]|$)");
                     var labelCol = axisMatch.Success ? axisMatch.Groups[1].Value.Trim() : null;
                     var extracted = new List<object>();
                     foreach (var row in rows)

@@ -15,7 +15,7 @@ public class FileService
     private readonly FileParser _parser;
 
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
-        { ".xlsx", ".xls", ".csv" };
+        { ".xlsx", ".csv" };
     private const long MaxFileSize = 104_857_600; // 100MB
     private const long MaxTotalSize = 524_288_000; // 500MB
     private const int MaxFileCount = 20;
@@ -56,7 +56,8 @@ public class FileService
         {
             UserId = userId,
             TotalFiles = 0,
-            BatchStatus = BatchStatus.Uploading
+            BatchStatus = BatchStatus.Uploading,
+            Strategy = Strategy.Separate
         };
         _db.UploadBatches.Add(batch);
         await _db.SaveChangesAsync();

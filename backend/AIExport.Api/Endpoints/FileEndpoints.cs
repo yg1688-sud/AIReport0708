@@ -47,7 +47,7 @@ public static class FileEndpoints
                 var ext = Path.GetExtension(formFile.FileName);
                 var format = ext.ToLower() switch
                 {
-                    ".xlsx" => "xlsx", ".xls" => "xls", ".csv" => "csv", _ => null
+                    ".xlsx" => "xlsx", ".csv" => "csv", _ => null
                 };
 
                 if (format is null)

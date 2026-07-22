@@ -12,7 +12,7 @@ export async function loadTemplates() {
   return data.templates;
 }
 
-export function renderTemplateSelector(templates) {
+export function renderTemplateSelector(templates, forceTemplate = false) {
   const container = document.getElementById('templateSelector');
   if (!container) return;
 
@@ -23,12 +23,13 @@ export function renderTemplateSelector(templates) {
   }
 
   container.style.display = 'block';
+  const chatOption = forceTemplate ? '' : '<option value="__chat__"> 不使用模版（进入对话模式）</option>';
   container.innerHTML = `
     <div class="card" style="margin-top:16px;">
-      <h3 style="margin-bottom:8px;">选择分析模版 <span style="color:#ff4d4f;">*必选</span></h3>
+      <h3 style="margin-bottom:8px;">选择分析模版 ${forceTemplate ? '<span style="color:#ff4d4f;">*多文件必选</span>' : '<span style="color:#ff4d4f;">*必选</span>'}</h3>
       <select id="templateSelect" style="width:100%;padding:8px;border:2px solid #1677ff;border-radius:6px;font-size:14px;">
-        <option value="" selected>-- 请选择模版或对话模式 --</option>
-        <option value="__chat__"> 不使用模版（进入对话模式）</option>
+        <option value="" selected>-- 请选择模版${forceTemplate ? '' : '或对话模式'} --</option>
+        ${chatOption}
         ${templates.map(t => `<option value="${t.id}">  ${t.name}（${t.strategy === 'merge' ? '合并' : '分别'} · ${new Date(t.createdAt).toLocaleDateString()}）</option>`).join('')}
       </select>
       <div id="templateValidationMsg" style="margin-top:8px;display:none;"></div>

@@ -101,10 +101,15 @@ public class FileParser
 
     private static Encoding DetectEncoding(string filePath)
     {
-        using var reader = new StreamReader(filePath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        reader.Peek();
-        if (reader.CurrentEncoding is UTF8Encoding) return Encoding.UTF8;
-        try { using var gbk = new StreamReader(filePath, Encoding.GetEncoding("GBK")); gbk.Peek(); return Encoding.GetEncoding("GBK"); }
+        // CSV文件默认使用GBK编码（code page 936），有UTF-8 BOM时用UTF-8
+        var bom = new byte[3];
+        using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+        { if (fs.Read(bom, 0, 3) >= 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) return Encoding.UTF8; }
+        try
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            return Encoding.GetEncoding(936);
+        }
         catch { return Encoding.UTF8; }
     }
 }

@@ -23,9 +23,9 @@
     <div id="uploadArea" class="card no-print" style="margin-bottom:12px;padding:12px;">
       <div style="display:flex;align-items:center;gap:8px;">
         <span style="font-weight:600;">上传数据：</span>
-        <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv" style="display:none;">
+        <input type="file" id="fileInput" multiple accept=".xlsx,.csv" style="display:none;">
         <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">选择文件</button>
-        <span style="color:#888;font-size:12px;">.xlsx .xls .csv · ≤100MB · 最多20个</span>
+        <span style="color:#888;font-size:12px;">.xlsx .csv · ≤100MB · 最多20个</span>
         <button id="clearAllBtn" class="btn btn-danger" style="display:none;margin-left:auto;" onclick="window._handleClearAll?.()">清空</button>
       </div>
       <div id="fileList" style="margin-top:8px;"></div>
@@ -35,8 +35,7 @@
       </div>
     </div>
 
-    <!-- 策略 / 模版选择 -->
-    <div id="strategySelector" style="display:none;"></div>
+    <!-- 模版选择 -->
     <div id="templateSelector" style="display:none;"></div>
 
     <!-- 3 列核心区域 -->
@@ -103,7 +102,7 @@
 
 <script type="module">
 import { checkAuth, logout, getUser } from '../js/auth.js';
-import { uploadFiles, renderFileList, subscribeProgress, showStrategySelector, getCurrentBatchId, getCurrentStrategy } from '../js/upload.js';
+import { uploadFiles, renderFileList, subscribeProgress, getCurrentBatchId } from '../js/upload.js';
 import { loadTemplates, renderTemplateSelector } from '../js/template.js';
 import { startChat, sendMessage, handleConfirm, renderMessage } from '../js/chat.js';
 import { subscribeReportProgress, renderReport, downloadReport, printReport, exportExcel } from '../js/report.js';
@@ -132,6 +131,13 @@ window.addEventListener('resize', fixLayout);
 // === 文件上传处理 ===
 window._handleFileSelect = async (fileList) => {
   if (!fileList || fileList.length === 0) return;
+  // 前端校验文件格式，不支持的直接弹窗拒绝
+  const allowed = ['.xlsx', '.csv'];
+  const invalid = Array.from(fileList).filter(f => !allowed.some(ext => f.name.toLowerCase().endsWith(ext)));
+  if (invalid.length > 0) {
+    alert('不支持的文件格式：' + invalid.map(f => f.name).join('、') + '\n\n仅支持 .xlsx 和 .csv 格式文件。');
+    return;
+  }
   document.getElementById('clearAllBtn').style.display = 'inline-block';
 
   // 重置对话：清空聊天记录和会话状态
@@ -153,19 +159,23 @@ window._handleFileSelect = async (fileList) => {
   window.addEventListener('batch-ready', async (e) => {
     document.getElementById('sessionInfo').textContent = '所有文件就绪';
     const fileCount = e.detail?.totalFiles || fileList.length;
-    showStrategySelector(fileCount);
-  });
-
-  window.addEventListener('strategy-selected', async (e) => {
-    const st = getCurrentStrategy() || 'merge';
-    document.getElementById('strategyInfo').textContent = `策略: ${st === 'merge' ? '合并分析' : '分别分析'}`;
+    // 统一使用分别分析策略
+    const st = 'separate';
+    document.getElementById('strategyInfo').textContent = `策略: 分别分析（${fileCount} 个文件）`;
 
     const templates = await loadTemplates();
     if (templates.length > 0) {
-      renderTemplateSelector(templates);
-      // 等待用户选择模版后再展示工作区
+      // 多文件时强制模版模式：隐藏"不使用模版"选项
+      window._forceTemplate = fileCount > 1;
+      renderTemplateSelector(templates, window._forceTemplate);
+    } else if (fileCount > 1) {
+      // 多文件但无模版：提示用户先创建模版
+      document.getElementById('workArea').style.display = 'grid';
+      document.getElementById('workArea').style.gridTemplateColumns = '280px 1fr';
+      document.getElementById('centerPanel').style.display = 'block';
+      document.getElementById('chatMessages').innerHTML = '<p style=\"color:#ff4d4f;text-align:center;padding:40px;\">上传了多个文件，需要选择分析模版才能生成报告。请先在模版管理页面创建模版，或只上传一个文件使用对话模式。</p>';
     } else {
-      // 无模版，直接展示对话区
+      // 单文件无模版，直接进入对话模式
       document.getElementById('workArea').style.display = 'grid';
       document.getElementById('workArea').style.gridTemplateColumns = '280px 1fr';
       await enterChatMode();
@@ -183,8 +193,8 @@ window._handleFileSelect = async (fileList) => {
       document.getElementById('centerPanel').style.display = 'none';
       document.getElementById('confirmBtn').style.display = 'none';
       document.getElementById('generateBtn').style.display = 'block';
-    } else {
-      // 不使用模版 → 对话模式
+    } else if (!window._forceTemplate) {
+      // 单文件 + 不使用模版 → 对话模式
       document.getElementById('templateInfo').textContent = '';
       document.getElementById('generateBtn').style.display = 'none';
       await enterChatMode();
@@ -201,7 +211,7 @@ async function enterChatMode() {
   document.getElementById('workArea').style.gridTemplateColumns = '280px 1fr';
   document.getElementById('chatMessages').innerHTML = '';
   const batchId = getCurrentBatchId();
-  const strategy = getCurrentStrategy() || 'merge';
+  const strategy = 'separate';
   const result = await startChat(batchId, strategy);
   document.getElementById('sessionInfo').textContent = result.mode === 'template' ? '模版模式' : '对话模式';
   fixLayout();
@@ -258,7 +268,7 @@ window._resetAfterReport = () => {
 window._handleGenerate = async () => {
   const token = localStorage.getItem('token');
   const batchId = getCurrentBatchId();
-  const strategy = getCurrentStrategy() || 'merge';
+  const strategy = 'separate';
   // 直接从 select 元素获取所选模版 ID
   const sel = document.getElementById('templateSelect');
   const templateId = sel?.value || window._selectedTemplateId;
@@ -297,6 +307,7 @@ window._handleGenerate = async () => {
 function startReport(taskId) {
   document.getElementById('rightPanel').style.display = 'block';
   document.getElementById('reportProgressArea').style.display = 'block';
+  document.getElementById('downloadPrintArea').style.display = 'none';
   document.getElementById('reportContent').innerHTML = '<p style=\"color:#888;text-align:center;padding:20px;\">正在生成报告...</p>';
   // 对话模式=3列，模版模式=2列（左+右）
   const isTemplate = document.getElementById('centerPanel').style.display === 'none';

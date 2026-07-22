@@ -26,7 +26,7 @@ export function renderFileList(uploadResponse, append = false) {
     <div class="file-item" id="file-${f.id}" style="display:flex;align-items:center;justify-content:space-between;padding:12px;border:1px solid #e8e8e8;border-radius:6px;margin-bottom:8px;">
       <div style="flex:1;">
         <div style="font-weight:500;">${f.originalName}</div>
-        <div style="color:#888;font-size:12px;">${formatFileSize(f.fileSize)} · ${f.fileFormat.toUpperCase()} · <span id="status-${f.id}">解析中...</span></div>
+        <div style="color:#888;font-size:12px;">${formatFileSize(f.fileSize)} · ${f.fileFormat.toUpperCase()} · <span id="status-${f.id}">${f.parseStatus === 'failed' ? (f.errorMessage || '上传失败') : '解析中...'}</span></div>
       </div>
       <div style="width:200px;">
         <div class="progress-bar"><div id="progress-${f.id}" class="fill" style="width:0%"></div></div>
