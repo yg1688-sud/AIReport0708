@@ -17,7 +17,7 @@
 **Primary Dependencies**:
 - Backend: ASP.NET Core 10, Entity Framework Core 10 SQLite, ClosedXML (.xlsx 读写), CsvHelper (CSV 解析 + GBK编码, 依赖 System.Text.Encoding.CodePages), QuestPDF (PDF 报告生成), Microsoft.AspNetCore.Authentication.JwtBearer (JWT 认证), FluentValidation (输入验证)
 - Frontend: Ant Design 5.x (CDN 引入), Chart.js (图表渲染), PDF.js (PDF 预览)
-- AI: DeepSeek V4 API（HTTP 调用，chat completion 接口）
+- AI: DeepSeek V4 API + Kimi（HTTP 调用，chat completion/stream 接口），temperature=0.1，系统提示词禁用 Markdown 表格和示例数值，确认时附加 `<!--PARAMS-->` 机器标记优先驱动计算，解析前剥离 `<!--reasoning-->` 思考过程
 
 **Storage**: SQLite（单文件数据库 `app.db`，EF Core Code-First + Migration）
 
@@ -47,7 +47,7 @@
 
 | 宪法原则 | 状态 | 实现策略 |
 |----------|------|----------|
-| 一、安全第一 | ✅ PASS | JWT Bearer 认证 + `[Authorize]` 全局策略 + FluentValidation 输入验证 + 凭据仅存环境变量 + SQLite 文件系统权限保护 |
+| 一、安全第一 | ✅ PASS | JWT Bearer 认证（密钥从环境变量/配置文件读取，无硬编码默认值）+ `[Authorize]` 全局策略 + FluentValidation 输入验证 + API Key 仅存环境变量/配置文件 + SQLite 文件系统权限保护 + pre-commit 密钥扫描钩子 |
 | 二、测试优先 | ✅ PASS | TDD 流程：xUnit 测试先行 → 红灯 → 绿灯 → 重构。目标单元测试覆盖率 ≥80% |
 | 三、代码简洁 | ✅ PASS | C# 遵循 .NET 命名规范，中文 Git 提交消息。Minimal API 避免过度抽象，Service 层直映业务 |
 | 四、质量关卡 | ✅ PASS | 6 项纳入 PR checklist：测试先行/全部通过/Code Review/DRY/可读性/边界覆盖 |

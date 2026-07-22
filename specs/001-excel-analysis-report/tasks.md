@@ -205,8 +205,13 @@ tests/AIExport.E2E.Tests/       # E2E 测试
 
 ### Implementation for US6
 
-- [ ] T061 [US6] 创建 `backend/AIExport.Api/Infrastructure/PdfGenerator.cs` — QuestPDF 报告模板：A4 页面 → 封面（标题+日期）→ 数据概览章节（表格：行数/列数/缺失率）→ 描述性统计章节 → 图表章节（嵌入 SkiaSharp 渲染的图表图片）→ 交叉分析章节
-- [ ] T062 [US6] 创建 `backend/AIExport.Api/Services/ReportService.cs` — `GenerateAsync(taskId)` 从 JobQueue 消费任务：①清洗数据（去空行/类型推断）②计算描述性统计 ③生成图表数据（JSON 格式，供前端 Chart.js 渲染） ④计算交叉表 ⑤调用 PdfGenerator 生成 PDF ⑥每个阶段推送 SSE 进度事件；`GetReportAsync(reportId)` 返回章节内容 JSON
+- [x] T061 [US6] 创建 `backend/AIExport.Api/Infrastructure/PdfGenerator.cs` — QuestPDF 报告模板：A4 页面 → 封面（标题+日期）→ 汇总指标 → 数据概览章节 → 计算结果表格（动态列数） → 描述性统计章节 → 交叉分析章节（图表由前端 Chart.js/SVG 渲染，PDF 不含图表）
+- [x] T062 [US6] 创建 `backend/AIExport.Api/Services/ReportService.cs` — `GenerateAsync(taskId)` 从 JobQueue 消费任务：①清洗数据 ②计算描述性统计 ③生成图表数据（供前端渲染）④计算交叉表 ⑤调用 PdfGenerator 生成 PDF ⑥每个阶段推送 SSE 进度事件；新增：图表数据从 computedResults 反哺、横轴动态解析、TopN 动态、汇总指标按需生成
+- [x] T062a [US6] 图表增强：支持柱状图/折线图/饼图/条形图（Chart.js）+ 漏斗图（纯 SVG）；横轴标签从需求中"横轴为XX"动态解析（剥离粗体标记）；"前N名"/"Top N"动态限制数据量
+- [x] T062b [US6] LLM 确认时附加 `<!--PARAMS group=... sum=... -->` 机器标记，计算时优先解析标记参数跳过正则检测；标记缺失时自动回退正则/语义兜底
+- [x] T062c [US6] 导出 Excel 功能：使用 SheetJS（CDN）纯前端生成 .xlsx，含计算结果表格 + 上方汇总指标，汇总行标题合并跨列
+- [x] T062d [US6] 报告展示逻辑优化：僅图表需求时隐藏表格和汇总指标；僅表格需求时隐藏图表；两者都需时同时展示；仅当需求明确要求时才生成汇总指标和占比列
+- [x] T062e [US6] 报告生成期间隐藏下载 PDF/导出 Excel/打印报告按钮，报告完成后恢复显示
 - [ ] T063 [US6] 创建 `backend/AIExport.Api/Endpoints/ReportEndpoints.cs` — `GET /api/reports/progress?taskId=`（SSE 推送 progress/complete 事件）、`GET /api/reports/{id}`（报告详情+章节 JSON）
 - [ ] T064 [US6] 在 `backend/AIExport.Api/Infrastructure/JobQueue.cs` 中实现完整的 `BackgroundService` 消费者：从 Channel 读取任务 → 调用 ReportService.GenerateAsync → 更新报告状态 → 完成后推送 SSE complete 事件。使用 `SemaphoreSlim(100)` 控制并发
 - [ ] T065 [US6] 创建 `frontend/js/report.js` — `subscribeReportProgress(taskId)` 监听 SSE 更新进度条和阶段文字、`renderReport(report)` 渲染报告页面（Chart.js 渲染图表 + 数据表格）、`promptSaveTemplate()` 报告完成后弹出模版保存弹窗（Ant Design Modal + Input）
