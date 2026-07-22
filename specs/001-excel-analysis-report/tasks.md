@@ -128,32 +128,28 @@ tests/AIExport.E2E.Tests/       # E2E 测试
 
 ---
 
-## Phase 5: US3 — 多文件处理策略选择 (Priority: P2)
+## Phase 5: US3 — 多文件处理策略 (Priority: P2) *(简化)*
 
-**Goal**: 多文件就绪后系统询问"合并分析"还是"分别分析"；合并模式检查列结构一致性；单文件跳过
+**Goal**: 统一使用"分别分析"策略，用户无需手动选择。多文件时必须选择已有模版。
 
-**Independent Test**: 2个同结构文件 → 询问策略 → 选合并 → 通过；2个不同结构文件 → 选合并 → 提示差异
+**Independent Test**: 单文件 → 对话模式或模版模式均可；多文件 → 必须选模版，对话模式不可用。
 
-### Tests for US3 ⚠️
+### Implementation for US3 *(已完成)*
 
-- [ ] T042 [P] [US3] 策略服务单元测试：`tests/AIExport.Api.Tests/Unit/StrategyServiceTests.cs` — 合并模式列一致性检查（一致/不一致/忽略大小写/单文件跳过）
+- [x] T045 [US3] `frontend/pages/main.html` — 移除策略选择 UI，统一设为 separate；多文件时 `window._forceTemplate=true`
+- [x] T046 [US3] `frontend/js/template.js` — `renderTemplateSelector` 加 `forceTemplate` 参数，多文件时隐藏"不使用模版"选项
+- [x] `backend/AIExport.Api/Services/FileService.cs` — 创建批次时默认 `Strategy.Separate`
+- [x] `backend/AIExport.Api/Services/TemplateService.cs` — 保存模版默认 `Strategy.Separate`
 
-### Implementation for US3
-
-- [ ] T043 [US3] 创建 `backend/AIExport.Api/Services/StrategyService.cs` — `CheckColumnConsistency(batchId)` 比较所有文件列名（忽略大小写和首尾空格），返回一致/差异详情；`SetStrategy(batchId, strategy)` 更新批次策略
-- [ ] T044 [US3] 在 `backend/AIExport.Api/Endpoints/FileEndpoints.cs` 中添加策略端点：`POST /api/batches/{batchId}/strategy`（设置合并/分别策略，触发列结构检查）
-- [ ] T045 [US3] 在 `frontend/js/upload.js` 中添加策略选择 UI：Ant Design Radio.Group 组件（"合并分析"/"分别分析"）、列差异提示弹窗（不一致时展示差异列名）
-- [ ] T046 [US3] 在 `frontend/pages/main.html` 中集成策略选择区域：文件就绪后自动展示，单文件时隐藏
-
-**Checkpoint**: 多文件策略选择可用 — 合并/分别选择 → 列一致性检查 → 进入下一步
+**Checkpoint**: 策略已简化 — 全部分别分析，多文件强制模版模式
 
 ---
 
 ## Phase 6: US4 — 分析模版选择 (Priority: P2)
 
-**Goal**: 已有模版的用户可选择模版直接生成（不可聊天）；无模版或选择"不使用模版"则进入对话模式；模版列校验不通过时阻止生成
+**Goal**: 已有模版的用户可选择模版直接生成（不可聊天）。单文件时可选"不使用模版"进入对话模式；多文件时必须选模版。模版列校验不通过时阻止生成。
 
-**Independent Test**: 有模版用户 → 模版列表显示 → 选择模版 → "确认需求"隐藏/"立即生成报告"显示；选模版后列不匹配 → 提示缺失列
+**Independent Test**: 单文件 → 可选模版或对话；多文件 → 必须选模版，不显示"不使用模版"选项
 
 ### Tests for US4 ⚠️
 

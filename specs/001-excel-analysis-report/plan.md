@@ -6,7 +6,7 @@
 
 ## Summary
 
-构建一个 Web 应用，用户上传 Excel/CSV 文件后，通过 AI 聊天对话确认分析需求（或选择已有分析模版），系统自动生成包含数据概览、描述性统计、图表可视化和交叉分析的结构化 PDF 报告。支持多文件合并/分别分析、模版保存与复用、历史报告管理、下载（断点续传）和打印。
+构建一个 Web 应用，用户上传 Excel/CSV 文件后，通过 AI 聊天对话确认分析需求（或选择已有分析模版），系统自动生成包含数据概览、描述性统计、图表可视化和交叉分析的结构化 PDF 报告。支持全部分别分析、模版保存与复用、历史报告管理、下载和打印。多文件时必须选择已有模版。
 
 **技术路线**：ASP.NET Core 10 Minimal API（后端）+ Ant Design 静态页面（前端）+ SQLite（数据存储）+ DeepSeek V4（AI 聊天需求澄清）。
 
@@ -15,7 +15,7 @@
 **Language/Version**: C# 14 (.NET 10), JavaScript (ES2024), HTML5/CSS3
 
 **Primary Dependencies**:
-- Backend: ASP.NET Core 10, Entity Framework Core 10 SQLite, ClosedXML (Excel 读写), CsvHelper (CSV 解析), QuestPDF (PDF 报告生成), Microsoft.AspNetCore.Authentication.JwtBearer (JWT 认证), FluentValidation (输入验证)
+- Backend: ASP.NET Core 10, Entity Framework Core 10 SQLite, ClosedXML (.xlsx 读写), CsvHelper (CSV 解析 + GBK编码, 依赖 System.Text.Encoding.CodePages), QuestPDF (PDF 报告生成), Microsoft.AspNetCore.Authentication.JwtBearer (JWT 认证), FluentValidation (输入验证)
 - Frontend: Ant Design 5.x (CDN 引入), Chart.js (图表渲染), PDF.js (PDF 预览)
 - AI: DeepSeek V4 API（HTTP 调用，chat completion 接口）
 
